@@ -1,30 +1,29 @@
 package service
 
-import (
-	"github.com/MaxPa1/go-metrics/internal/repository"
-)
+type MetricsStorage interface {
+	UpdateGauge(name string, value float64)
+	UpdateCounter(name string, value int64)
+}
 
 type MetricsService interface {
-	UpdateGauge(name string, value float64) error
-	UpdateCounter(name string, value int64) error
+	RecordGauge(name string, value float64)
+	RecordCounter(name string, value int64)
 }
 
 type MetricsServiceImpl struct {
-	repository repository.MetricsStorage
+	repository MetricsStorage
 }
 
-func NewMetricsService(repository repository.MetricsStorage) *MetricsServiceImpl {
+func NewMetricsService(repository MetricsStorage) *MetricsServiceImpl {
 	return &MetricsServiceImpl{
 		repository: repository,
 	}
 }
 
-func (s *MetricsServiceImpl) UpdateGauge(name string, value float64) error {
+func (s *MetricsServiceImpl) RecordGauge(name string, value float64) {
 	s.repository.UpdateGauge(name, value)
-	return nil
 }
 
-func (s *MetricsServiceImpl) UpdateCounter(name string, value int64) error {
+func (s *MetricsServiceImpl) RecordCounter(name string, value int64) {
 	s.repository.UpdateCounter(name, value)
-	return nil
 }

@@ -29,14 +29,14 @@ func MetricsHandler(metricService service.MetricsService) http.HandlerFunc {
 				http.Error(w, "invalid gauge value", http.StatusBadRequest)
 				return
 			}
-			_ = metricService.UpdateGauge(metricsName, val)
+			metricService.RecordGauge(metricsName, val)
 		case models.Counter:
 			val, err := strconv.ParseInt(metricsValue, 10, 64)
 			if err != nil {
 				http.Error(w, "invalid counter value", http.StatusBadRequest)
 				return
 			}
-			_ = metricService.UpdateCounter(metricsName, val)
+			metricService.RecordCounter(metricsName, val)
 		default:
 			w.WriteHeader(http.StatusBadRequest)
 			return
