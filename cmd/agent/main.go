@@ -16,7 +16,7 @@ func main() {
 	client := &http.Client{
 		Timeout: time.Second * 5,
 	}
-	metricAgent := agent.NewMetricAgent()
+	metricAgent := agent.NewMetricAgent("http://localhost:8080/update")
 
 	lastReport := time.Now()
 

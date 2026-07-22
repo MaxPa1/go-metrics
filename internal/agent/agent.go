@@ -18,24 +18,26 @@ type MetricAgent struct {
 	pollCount   int64
 	randomValue float64
 	gauges      map[string]float64
+	baseURL     string
 }
 
-func NewMetricAgent() *MetricAgent {
+func NewMetricAgent(baseURL string) *MetricAgent {
 	return &MetricAgent{
-		gauges: make(map[string]float64),
+		gauges:  make(map[string]float64),
+		baseURL: baseURL,
 	}
 }
 
 func (m *MetricAgent) SendMetrics(client *http.Client) {
 	for name, value := range m.gauges {
-		m.sendMetric(client, models.Gauge, name, fmt.Sprintf("%v", value))
+		sendMetric(client, m.baseURL, models.Gauge, name, fmt.Sprintf("%v", value))
 	}
-	m.sendMetric(client, models.Gauge, "randomValue", fmt.Sprintf("%v", m.randomValue))
-	m.sendMetric(client, models.Counter, "poolCount", fmt.Sprintf("%d", m.pollCount))
+	sendMetric(client, m.baseURL, models.Gauge, "randomValue", fmt.Sprintf("%v", m.randomValue))
+	sendMetric(client, m.baseURL, models.Counter, "pollCount", fmt.Sprintf("%d", m.pollCount))
 }
 
-func (m *MetricAgent) sendMetric(client *http.Client, mType, name, value string) {
-	url := fmt.Sprintf("http://localhost:8080/update/%s/%s/%s", mType, name, value)
+func sendMetric(client *http.Client, baseURL, mType, name, value string) {
+	url := fmt.Sprintf("%s/%s/%s/%s", baseURL, mType, name, value)
 	resp, err := client.Post(url, "text/plain", http.NoBody)
 	if err != nil {
 		log.Printf("Error sending %s %s: %v", mType, name, err)
