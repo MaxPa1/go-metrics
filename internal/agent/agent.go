@@ -8,7 +8,10 @@ import (
 	"runtime"
 
 	"github.com/MaxPa1/go-metrics/internal/model"
+	"github.com/go-resty/resty/v2"
 )
+
+var PostMetricsUrl = "http://localhost:8080/update/{metricsType}/{metricsName}/{metricsValue}"
 
 type Agent interface {
 	SendMetrics(client *http.Client)
@@ -28,7 +31,7 @@ func NewMetricAgent(baseURL string) *MetricAgent {
 	}
 }
 
-func (m *MetricAgent) SendMetrics(client *http.Client) {
+func (m *MetricAgent) SendMetrics(client *resty.Client) {
 	for name, value := range m.gauges {
 		sendMetric(client, m.baseURL, models.Gauge, name, fmt.Sprintf("%v", value))
 	}
@@ -36,16 +39,22 @@ func (m *MetricAgent) SendMetrics(client *http.Client) {
 	sendMetric(client, m.baseURL, models.Counter, "pollCount", fmt.Sprintf("%d", m.pollCount))
 }
 
-func sendMetric(client *http.Client, baseURL, mType, name, value string) {
-	url := fmt.Sprintf("%s/%s/%s/%s", baseURL, mType, name, value)
-	resp, err := client.Post(url, "text/plain", http.NoBody)
+func sendMetric(client *resty.Client, url, mType, name, value string) {
+	resp, err := client.R().
+		SetPathParams(map[string]string{
+			"metricsType":  mType,
+			"metricsName":  name,
+			"metricsValue": value,
+		}).
+		SetHeader("content-type", "text/plain").
+		Post(url)
+
 	if err != nil {
 		log.Printf("Error sending %s %s: %v", mType, name, err)
 		return
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("Non-OK status for %s %s: %d", mType, name, resp.StatusCode)
+	if resp.StatusCode() != http.StatusOK {
+		log.Printf("Non-OK status for %s %s: %d", mType, name, resp.StatusCode())
 	}
 }
 

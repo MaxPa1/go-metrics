@@ -6,6 +6,7 @@ import (
 	"github.com/MaxPa1/go-metrics/internal/handler"
 	"github.com/MaxPa1/go-metrics/internal/repository"
 	"github.com/MaxPa1/go-metrics/internal/service"
+	"github.com/go-chi/chi/v5"
 )
 
 func main() {
@@ -18,7 +19,10 @@ func run() error {
 	storage := repository.NewMemStorage()
 	metricService := service.NewMetricsService(storage)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/update/{metricsType}/{metricsName}/{metricsValue}", handler.MetricsHandler(metricService))
-	return http.ListenAndServe(":8080", mux)
+	router := chi.NewRouter()
+	router.Post("/update/{metricsType}/{metricsName}/{metricsValue}", handler.MetricsHandler(metricService))
+	router.Get("/value/{metricsType}/{metricsName}", handler.GetMetricsHandler(metricService))
+	router.Get("/", handler.GetAllMetricsHandler(metricService))
+
+	return http.ListenAndServe(":8080", router)
 }

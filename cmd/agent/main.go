@@ -1,10 +1,10 @@
 package main
 
 import (
-	"net/http"
 	"time"
 
 	"github.com/MaxPa1/go-metrics/internal/agent"
+	"github.com/go-resty/resty/v2"
 )
 
 const (
@@ -13,10 +13,10 @@ const (
 )
 
 func main() {
-	client := &http.Client{
-		Timeout: time.Second * 5,
-	}
-	metricAgent := agent.NewMetricAgent("http://localhost:8080/update")
+	client := resty.New().
+		SetTimeout(5 * time.Second)
+
+	metricAgent := agent.NewMetricAgent(agent.PostMetricsUrl)
 
 	lastReport := time.Now()
 

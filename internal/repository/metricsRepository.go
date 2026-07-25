@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"fmt"
 	"sync"
 )
 
@@ -27,4 +28,28 @@ func (m *MemStorage) UpdateCounter(name string, delta int64) {
 	current, _ := m.data[name].(int64)
 	current += delta
 	m.data[name] = current
+}
+
+func (m *MemStorage) FindGauge(name string) (float64, bool) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	v, ok := m.data[name].(float64)
+	return v, ok
+}
+
+func (m *MemStorage) FindCounter(name string) (int64, bool) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	v, ok := m.data[name].(int64)
+	return v, ok
+}
+
+func (m *MemStorage) FindAll() []string {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	list := make([]string, 0, len(m.data))
+	for k, v := range m.data {
+		list = append(list, fmt.Sprintf("%s: %v", k, v))
+	}
+	return list
 }
