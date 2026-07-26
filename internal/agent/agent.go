@@ -11,12 +11,6 @@ import (
 	"github.com/go-resty/resty/v2"
 )
 
-var PostMetricsUrl = "http://localhost:8080/update/{metricsType}/{metricsName}/{metricsValue}"
-
-type Agent interface {
-	SendMetrics(client *http.Client)
-}
-
 type MetricAgent struct {
 	pollCount   int64
 	randomValue float64
@@ -24,10 +18,10 @@ type MetricAgent struct {
 	baseURL     string
 }
 
-func NewMetricAgent(baseURL string) *MetricAgent {
+func NewMetricAgent(cfg *Config) *MetricAgent {
 	return &MetricAgent{
 		gauges:  make(map[string]float64),
-		baseURL: baseURL,
+		baseURL: "http://" + cfg.Address + "/update/{metricsType}/{metricsName}/{metricsValue}",
 	}
 }
 

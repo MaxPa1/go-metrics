@@ -12,14 +12,14 @@ import (
 )
 
 func TestNewMetricAgent(t *testing.T) {
-	agent := NewMetricAgent(PostMetricsUrl)
+	agent := NewMetricAgent(&Config{Address: "localhost:8080"})
 
 	assert.NotNil(t, agent)
 	assert.NotNil(t, agent.gauges, "gauges must not be nil")
 	assert.Empty(t, agent.gauges)
 	assert.Equal(t, int64(0), agent.pollCount)
 	assert.Equal(t, float64(0), agent.randomValue)
-	assert.Equal(t, PostMetricsUrl, agent.baseURL)
+	assert.Equal(t, "http://localhost:8080/update/{metricsType}/{metricsName}/{metricsValue}", agent.baseURL)
 }
 
 func TestMetricAgent_SendMetrics(t *testing.T) {

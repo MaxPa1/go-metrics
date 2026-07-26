@@ -7,24 +7,21 @@ import (
 	"github.com/go-resty/resty/v2"
 )
 
-const (
-	pullInterval   = 2 * time.Second
-	reportInterval = 10 * time.Second
-)
-
 func main() {
+	config := agent.ParseFlags()
+
 	client := resty.New().
 		SetTimeout(5 * time.Second)
 
-	metricAgent := agent.NewMetricAgent(agent.PostMetricsUrl)
+	metricAgent := agent.NewMetricAgent(config)
 
 	lastReport := time.Now()
 
 	for {
 		metricAgent.UpdateMetrics()
-		time.Sleep(pullInterval)
+		time.Sleep(config.PollInterval)
 
-		if time.Since(lastReport) >= reportInterval {
+		if time.Since(lastReport) >= config.ReportInterval {
 			metricAgent.SendMetrics(client)
 			lastReport = time.Now()
 		}

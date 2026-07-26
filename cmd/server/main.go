@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"net/http"
 
 	"github.com/MaxPa1/go-metrics/internal/handler"
@@ -9,7 +10,11 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+var serverAddress string
+
 func main() {
+	flag.Parse()
+
 	if err := run(); err != nil {
 		panic(err)
 	}
@@ -24,5 +29,9 @@ func run() error {
 	router.Get("/value/{metricsType}/{metricsName}", handler.GetMetricsHandler(metricService))
 	router.Get("/", handler.GetAllMetricsHandler(metricService))
 
-	return http.ListenAndServe(":8080", router)
+	return http.ListenAndServe(serverAddress, router)
+}
+
+func init() {
+	flag.StringVar(&serverAddress, "a", "localhost:8080", "server address")
 }
