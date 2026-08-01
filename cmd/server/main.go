@@ -1,26 +1,25 @@
 package main
 
 import (
-	"flag"
+	"log"
 	"net/http"
 
+	"github.com/MaxPa1/go-metrics/internal/config"
 	"github.com/MaxPa1/go-metrics/internal/handler"
 	"github.com/MaxPa1/go-metrics/internal/repository"
 	"github.com/MaxPa1/go-metrics/internal/service"
 	"github.com/go-chi/chi/v5"
 )
 
-var serverAddress string
-
 func main() {
-	flag.Parse()
-
 	if err := run(); err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 }
 
 func run() error {
+	cfg := config.ParseFlags()
+
 	storage := repository.NewMemStorage()
 	metricService := service.NewMetricsService(storage)
 
@@ -29,9 +28,5 @@ func run() error {
 	router.Get("/value/{metricsType}/{metricsName}", handler.GetMetricsHandler(metricService))
 	router.Get("/", handler.GetAllMetricsHandler(metricService))
 
-	return http.ListenAndServe(serverAddress, router)
-}
-
-func init() {
-	flag.StringVar(&serverAddress, "a", "localhost:8080", "server address")
+	return http.ListenAndServe(cfg.Address, router)
 }

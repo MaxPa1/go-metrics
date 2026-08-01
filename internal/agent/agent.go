@@ -1,11 +1,11 @@
 package agent
 
 import (
-	"fmt"
 	"log"
 	"math/rand/v2"
 	"net/http"
 	"runtime"
+	"strconv"
 
 	"github.com/MaxPa1/go-metrics/internal/model"
 	"github.com/go-resty/resty/v2"
@@ -27,10 +27,11 @@ func NewMetricAgent(cfg *Config) *MetricAgent {
 
 func (m *MetricAgent) SendMetrics(client *resty.Client) {
 	for name, value := range m.gauges {
-		sendMetric(client, m.baseURL, models.Gauge, name, fmt.Sprintf("%v", value))
+		sendMetric(client, m.baseURL, models.Gauge, name, strconv.FormatFloat(value, 'g', -1, 64))
 	}
-	sendMetric(client, m.baseURL, models.Gauge, "randomValue", fmt.Sprintf("%v", m.randomValue))
-	sendMetric(client, m.baseURL, models.Counter, "pollCount", fmt.Sprintf("%d", m.pollCount))
+	sendMetric(client, m.baseURL, models.Gauge, "randomValue", strconv.FormatFloat(m.randomValue, 'g', -1, 64))
+	sendMetric(client, m.baseURL, models.Counter, "pollCount", strconv.FormatInt(m.pollCount, 10))
+	m.pollCount = 0
 }
 
 func sendMetric(client *resty.Client, url, mType, name, value string) {

@@ -10,8 +10,7 @@ import (
 
 func TestMemStorage_UpdateCounter(t *testing.T) {
 	type fields struct {
-		mutex sync.RWMutex
-		data  map[string]interface{}
+		data map[string]int64
 	}
 	type args struct {
 		name  string
@@ -25,13 +24,13 @@ func TestMemStorage_UpdateCounter(t *testing.T) {
 	}{
 		{
 			name:   "Update existing counter",
-			fields: fields{data: map[string]interface{}{"calls": int64(4)}},
+			fields: fields{data: map[string]int64{"calls": int64(4)}},
 			args:   args{"calls", int64(1)},
 			want:   int64(5),
 		},
 		{
 			name:   "Add new counter",
-			fields: fields{data: map[string]interface{}{}},
+			fields: fields{data: map[string]int64{}},
 			args:   args{"calls", int64(1)},
 			want:   int64(1),
 		},
@@ -39,12 +38,12 @@ func TestMemStorage_UpdateCounter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := &MemStorage{
-				mutex: tt.fields.mutex,
-				data:  tt.fields.data,
+				mutex:      &sync.Mutex{},
+				counterMap: tt.fields.data,
 			}
 			m.UpdateCounter(tt.args.name, tt.args.delta)
-			val, ok := m.data[tt.args.name].(int64)
-			require.True(t, ok, "value should be int64")
+			val, ok := m.counterMap[tt.args.name]
+			require.True(t, ok)
 			assert.Equal(t, tt.want, val)
 		})
 	}
@@ -52,8 +51,7 @@ func TestMemStorage_UpdateCounter(t *testing.T) {
 
 func TestMemStorage_UpdateGauge(t *testing.T) {
 	type fields struct {
-		mutex sync.RWMutex
-		data  map[string]interface{}
+		data map[string]float64
 	}
 	type args struct {
 		name  string
@@ -67,13 +65,13 @@ func TestMemStorage_UpdateGauge(t *testing.T) {
 	}{
 		{
 			name:   "Update existing gauge",
-			fields: fields{data: map[string]interface{}{"cpu": 0.32}},
+			fields: fields{data: map[string]float64{"cpu": 0.32}},
 			args:   args{"cpu", 0.76},
 			want:   0.76,
 		},
 		{
 			name:   "Add new gauge",
-			fields: fields{data: map[string]interface{}{}},
+			fields: fields{data: map[string]float64{}},
 			args:   args{"memory", 33.2},
 			want:   33.2,
 		},
@@ -81,13 +79,12 @@ func TestMemStorage_UpdateGauge(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := &MemStorage{
-				mutex: tt.fields.mutex,
-				data:  tt.fields.data,
+				mutex:    &sync.Mutex{},
+				gaugeMap: tt.fields.data,
 			}
 			m.UpdateGauge(tt.args.name, tt.args.value)
-
-			val, ok := m.data[tt.args.name].(float64)
-			require.True(t, ok, "value should be float64")
+			val, ok := m.gaugeMap[tt.args.name]
+			require.True(t, ok)
 			assert.Equal(t, tt.want, val)
 		})
 	}
@@ -95,8 +92,7 @@ func TestMemStorage_UpdateGauge(t *testing.T) {
 
 func TestMemStorage_FindGauge(t *testing.T) {
 	type fields struct {
-		mutex sync.RWMutex
-		data  map[string]interface{}
+		data map[string]float64
 	}
 	type args struct {
 		name string
@@ -110,14 +106,14 @@ func TestMemStorage_FindGauge(t *testing.T) {
 	}{
 		{
 			name:   "Find existing gauge",
-			fields: fields{data: map[string]interface{}{"cpu": 0.32}},
+			fields: fields{data: map[string]float64{"cpu": 0.32}},
 			args:   args{"cpu"},
 			want:   0.32,
 			want1:  true,
 		},
 		{
 			name:   "Find not existing gauge",
-			fields: fields{data: map[string]interface{}{}},
+			fields: fields{data: map[string]float64{}},
 			args:   args{"SYS"},
 			want:   0,
 			want1:  false,
@@ -126,8 +122,8 @@ func TestMemStorage_FindGauge(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := &MemStorage{
-				mutex: tt.fields.mutex,
-				data:  tt.fields.data,
+				mutex:    &sync.Mutex{},
+				gaugeMap: tt.fields.data,
 			}
 			got, got1 := m.FindGauge(tt.args.name)
 			assert.Equalf(t, tt.want, got, "FindGauge(%v)", tt.args.name)
@@ -138,8 +134,7 @@ func TestMemStorage_FindGauge(t *testing.T) {
 
 func TestMemStorage_FindCounter(t *testing.T) {
 	type fields struct {
-		mutex sync.RWMutex
-		data  map[string]interface{}
+		data map[string]int64
 	}
 	type args struct {
 		name string
@@ -153,14 +148,14 @@ func TestMemStorage_FindCounter(t *testing.T) {
 	}{
 		{
 			name:   "Find existing counter",
-			fields: fields{data: map[string]interface{}{"Counter": int64(36)}},
+			fields: fields{data: map[string]int64{"Counter": int64(36)}},
 			args:   args{"Counter"},
 			want:   int64(36),
 			want1:  true,
 		},
 		{
 			name:   "Find not existing counter",
-			fields: fields{data: map[string]interface{}{}},
+			fields: fields{data: map[string]int64{}},
 			args:   args{"Counter"},
 			want:   0,
 			want1:  false,
@@ -169,8 +164,8 @@ func TestMemStorage_FindCounter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := &MemStorage{
-				mutex: tt.fields.mutex,
-				data:  tt.fields.data,
+				mutex:      &sync.Mutex{},
+				counterMap: tt.fields.data,
 			}
 			got, got1 := m.FindCounter(tt.args.name)
 			assert.Equalf(t, tt.want, got, "FindCounter(%v)", tt.args.name)

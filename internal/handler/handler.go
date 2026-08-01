@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"html/template"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -23,12 +24,16 @@ const tmpl = `
 </body>
 </html>`
 
-func MetricsHandler(metricService service.MetricsService) http.HandlerFunc {
+type MetricsService interface {
+	RecordGauge(name string, value float64)
+	GetGauge(name string) (float64, error)
+	RecordCounter(name string, value int64)
+	GetCounter(name string) (int64, error)
+	GetAll() []string
+}
+
+func MetricsHandler(metricService MetricsService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
 		metricsType := chi.URLParam(r, "metricsType")
 		metricsName := chi.URLParam(r, "metricsName")
 		metricsValue := chi.URLParam(r, "metricsValue")
@@ -61,7 +66,7 @@ func MetricsHandler(metricService service.MetricsService) http.HandlerFunc {
 	}
 }
 
-func GetMetricsHandler(metricService service.MetricsService) http.HandlerFunc {
+func GetMetricsHandler(metricService MetricsService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		metricsType := chi.URLParam(r, "metricsType")
 		metricsName := chi.URLParam(r, "metricsName")
@@ -93,23 +98,32 @@ func GetMetricsHandler(metricService service.MetricsService) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(body))
+		_, err := w.Write([]byte(body))
+		if err != nil {
+			log.Printf("failed to write response body: %v", err)
+			return
+		}
 	}
 }
 
-func GetAllMetricsHandler(metricService service.MetricsService) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		t := template.Must(template.New("metrics").Parse(tmpl))
-
-		if r.Method != http.MethodGet {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
+func GetAllMetricsHandler(metricService MetricsService) http.HandlerFunc {
+	t, err := template.New("metrics").Parse(tmpl)
+	if err != nil {
+		return func(w http.ResponseWriter, r *http.Request) {
+			log.Printf("failed to parse template: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		}
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
 		metrics := metricService.GetAll()
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		t.Execute(w, metrics)
+		err := t.Execute(w, metrics)
+		if err != nil {
+			log.Printf("failed to execute template: %v", err)
+			return
+		}
 	}
 }
 

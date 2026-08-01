@@ -15,14 +15,6 @@ type MetricsStorage interface {
 	FindAll() []string
 }
 
-type MetricsService interface {
-	RecordGauge(name string, value float64)
-	GetGauge(name string) (float64, error)
-	RecordCounter(name string, value int64)
-	GetCounter(name string) (int64, error)
-	GetAll() []string
-}
-
 type MetricsServiceImpl struct {
 	repository MetricsStorage
 }
