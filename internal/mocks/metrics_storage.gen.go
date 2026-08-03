@@ -18,23 +18,35 @@ func (_m *MetricsStorage) EXPECT() *MetricsStorage_Expecter {
 }
 
 // FindAll provides a mock function with no fields
-func (_m *MetricsStorage) FindAll() []string {
+func (_m *MetricsStorage) FindAll() (map[string]int64, map[string]float64) {
 	ret := _m.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for FindAll")
 	}
 
-	var r0 []string
-	if rf, ok := ret.Get(0).(func() []string); ok {
+	var r0 map[string]int64
+	var r1 map[string]float64
+	if rf, ok := ret.Get(0).(func() (map[string]int64, map[string]float64)); ok {
+		return rf()
+	}
+	if rf, ok := ret.Get(0).(func() map[string]int64); ok {
 		r0 = rf()
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]string)
+			r0 = ret.Get(0).(map[string]int64)
 		}
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func() map[string]float64); ok {
+		r1 = rf()
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(map[string]float64)
+		}
+	}
+
+	return r0, r1
 }
 
 // MetricsStorage_FindAll_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FindAll'
@@ -54,12 +66,12 @@ func (_c *MetricsStorage_FindAll_Call) Run(run func()) *MetricsStorage_FindAll_C
 	return _c
 }
 
-func (_c *MetricsStorage_FindAll_Call) Return(_a0 []string) *MetricsStorage_FindAll_Call {
-	_c.Call.Return(_a0)
+func (_c *MetricsStorage_FindAll_Call) Return(_a0 map[string]int64, _a1 map[string]float64) *MetricsStorage_FindAll_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MetricsStorage_FindAll_Call) RunAndReturn(run func() []string) *MetricsStorage_FindAll_Call {
+func (_c *MetricsStorage_FindAll_Call) RunAndReturn(run func() (map[string]int64, map[string]float64)) *MetricsStorage_FindAll_Call {
 	_c.Call.Return(run)
 	return _c
 }

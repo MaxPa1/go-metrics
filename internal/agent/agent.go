@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"log"
 	"math/rand/v2"
 	"net/http"
@@ -27,14 +28,24 @@ func NewMetricAgent(cfg *Config) *MetricAgent {
 
 func (m *MetricAgent) SendMetrics(client *resty.Client) {
 	for name, value := range m.gauges {
-		sendMetric(client, m.baseURL, models.Gauge, name, strconv.FormatFloat(value, 'g', -1, 64))
+		if err := sendMetric(client, m.baseURL, models.Gauge, name,
+			strconv.FormatFloat(value, 'g', -1, 64)); err != nil {
+			log.Printf("Error sending gauge %s: %s\n", name, err)
+		}
 	}
-	sendMetric(client, m.baseURL, models.Gauge, "randomValue", strconv.FormatFloat(m.randomValue, 'g', -1, 64))
-	sendMetric(client, m.baseURL, models.Counter, "pollCount", strconv.FormatInt(m.pollCount, 10))
+	if err := sendMetric(client, m.baseURL, models.Gauge, "randomValue",
+		strconv.FormatFloat(m.randomValue, 'g', -1, 64)); err != nil {
+		log.Printf("Error sending gauge randomValue: %s\n", err)
+	}
+	if err := sendMetric(client, m.baseURL, models.Counter, "pollCount",
+		strconv.FormatInt(m.pollCount, 10)); err != nil {
+		log.Printf("Error sending counter: %s\n", err)
+		return
+	}
 	m.pollCount = 0
 }
 
-func sendMetric(client *resty.Client, url, mType, name, value string) {
+func sendMetric(client *resty.Client, url, mType, name, value string) error {
 	resp, err := client.R().
 		SetPathParams(map[string]string{
 			"metricsType":  mType,
@@ -45,12 +56,12 @@ func sendMetric(client *resty.Client, url, mType, name, value string) {
 		Post(url)
 
 	if err != nil {
-		log.Printf("Error sending %s %s: %v", mType, name, err)
-		return
+		return fmt.Errorf("post metric %s/%s: %w", mType, name, err)
 	}
 	if resp.StatusCode() != http.StatusOK {
-		log.Printf("Non-OK status for %s %s: %d", mType, name, resp.StatusCode())
+		return fmt.Errorf("unexpected status for %s/%s: %d", mType, name, resp.StatusCode())
 	}
+	return nil
 }
 
 func (m *MetricAgent) UpdateMetrics() {

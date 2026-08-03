@@ -3,6 +3,8 @@ package service
 import (
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 )
 
 var ErrMetricNotFound = errors.New("metric not found")
@@ -12,7 +14,7 @@ type MetricsStorage interface {
 	FindGauge(name string) (float64, bool)
 	UpdateCounter(name string, value int64)
 	FindCounter(name string) (int64, bool)
-	FindAll() []string
+	FindAll() (map[string]int64, map[string]float64)
 }
 
 type MetricsServiceImpl struct {
@@ -50,5 +52,25 @@ func (s *MetricsServiceImpl) GetCounter(name string) (int64, error) {
 }
 
 func (s *MetricsServiceImpl) GetAll() []string {
-	return s.repository.FindAll()
+	counters, gauges := s.repository.FindAll()
+
+	list := make([]string, 0, len(counters)+len(gauges))
+
+	var sb strings.Builder
+
+	for k, v := range counters {
+		sb.Reset()
+		sb.WriteString(k)
+		sb.WriteString(": ")
+		sb.Write(strconv.AppendInt(nil, v, 10))
+		list = append(list, sb.String())
+	}
+	for k, v := range gauges {
+		sb.Reset()
+		sb.WriteString(k)
+		sb.WriteString(": ")
+		sb.Write(strconv.AppendFloat(nil, v, 'f', -1, 64))
+		list = append(list, sb.String())
+	}
+	return list
 }

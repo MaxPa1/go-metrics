@@ -1,8 +1,6 @@
 package repository
 
 import (
-	"strconv"
-	"strings"
 	"sync"
 )
 
@@ -48,26 +46,17 @@ func (m *MemStorage) FindCounter(name string) (int64, bool) {
 	return v, ok
 }
 
-func (m *MemStorage) FindAll() []string {
+func (m *MemStorage) FindAll() (counters map[string]int64, gauges map[string]float64) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	list := make([]string, 0, len(m.counterMap)+len(m.gaugeMap))
-
-	var sb strings.Builder
-
+	counters = make(map[string]int64, len(m.counterMap))
 	for k, v := range m.counterMap {
-		sb.Reset()
-		sb.WriteString(k)
-		sb.WriteString(": ")
-		sb.Write(strconv.AppendInt(nil, v, 10))
-		list = append(list, sb.String())
+		counters[k] = v
 	}
+
+	gauges = make(map[string]float64, len(m.gaugeMap))
 	for k, v := range m.gaugeMap {
-		sb.Reset()
-		sb.WriteString(k)
-		sb.WriteString(": ")
-		sb.Write(strconv.AppendFloat(nil, v, 'f', -1, 64))
-		list = append(list, sb.String())
+		gauges[k] = v
 	}
-	return list
+	return
 }

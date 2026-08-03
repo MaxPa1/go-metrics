@@ -111,7 +111,7 @@ func GetAllMetricsHandler(metricService MetricsService) http.HandlerFunc {
 	if err != nil {
 		return func(w http.ResponseWriter, r *http.Request) {
 			log.Printf("failed to parse template: %v", err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
