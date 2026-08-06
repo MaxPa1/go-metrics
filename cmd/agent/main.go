@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"time"
 
 	"github.com/MaxPa1/go-metrics/internal/agent"
@@ -8,7 +9,10 @@ import (
 )
 
 func main() {
-	config := agent.ParseFlags()
+	config, err := agent.LoadConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	client := resty.New().
 		SetTimeout(5 * time.Second)
