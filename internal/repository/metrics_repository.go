@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"maps"
 	"sync"
 )
 
@@ -46,17 +47,13 @@ func (m *MemStorage) FindCounter(name string) (int64, bool) {
 	return v, ok
 }
 
-func (m *MemStorage) FindAll() (counters map[string]int64, gauges map[string]float64) {
+func (m *MemStorage) FindAll() (map[string]int64, map[string]float64) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	counters = make(map[string]int64, len(m.counterMap))
-	for k, v := range m.counterMap {
-		counters[k] = v
-	}
+	copyCounters := make(map[string]int64, len(m.counterMap))
+	maps.Copy(copyCounters, m.counterMap)
 
-	gauges = make(map[string]float64, len(m.gaugeMap))
-	for k, v := range m.gaugeMap {
-		gauges[k] = v
-	}
-	return
+	copyGauges := make(map[string]float64, len(m.gaugeMap))
+	maps.Copy(copyGauges, m.gaugeMap)
+	return copyCounters, copyGauges
 }
