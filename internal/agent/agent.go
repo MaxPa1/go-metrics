@@ -35,7 +35,7 @@ func (m *MetricAgent) SendMetrics(client *resty.Client) {
 	}
 	if err := sendMetric(client, m.baseURL, models.Gauge, "randomValue",
 		strconv.FormatFloat(m.randomValue, 'g', -1, 64)); err != nil {
-		log.Printf("Error sending gauge randomValue: %s\n", err)
+		log.Printf("Error sending randomValue: %s\n", err)
 	}
 	if err := sendMetric(client, m.baseURL, models.Counter, "pollCount",
 		strconv.FormatInt(m.pollCount, 10)); err != nil {
