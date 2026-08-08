@@ -28,7 +28,7 @@ func LoadConfig() (*Config, error) {
 	cfg.PollInterval = time.Duration(pollSeconds) * time.Second
 	cfg.ReportInterval = time.Duration(reportSeconds) * time.Second
 
-	if err := env.ParseWithOptions(&cfg, options); err != nil {
+	if err := env.ParseWithOptions(cfg, options); err != nil {
 		return nil, fmt.Errorf("env parse error: %w", err)
 	}
 	return cfg, nil
