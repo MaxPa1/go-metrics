@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/MaxPa1/go-metrics/internal/agent"
+
 	"github.com/go-resty/resty/v2"
 )
 
