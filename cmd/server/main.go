@@ -37,7 +37,13 @@ func run() error {
 	router.Use(logger.RequestLogger)
 
 	router.Post("/update/{metricsType}/{metricsName}/{metricsValue}", handler.MetricsHandler(metricService))
+	router.Post("/update/", handler.MetricsV2Handler(metricService))
+	router.Post("/update", handler.MetricsV2Handler(metricService))
+
 	router.Get("/value/{metricsType}/{metricsName}", handler.GetMetricsHandler(metricService))
+	router.Post("/value", handler.GetMetricsV2Handler(metricService))
+	router.Post("/value/", handler.GetMetricsV2Handler(metricService))
+
 	router.Get("/", handler.GetAllMetricsHandler(metricService))
 
 	return http.ListenAndServe(cfg.Address, router)

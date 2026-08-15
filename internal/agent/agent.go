@@ -1,12 +1,12 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand/v2"
 	"net/http"
 	"runtime"
-	"strconv"
 
 	"github.com/MaxPa1/go-metrics/internal/model"
 	"github.com/go-resty/resty/v2"
@@ -22,37 +22,44 @@ type MetricAgent struct {
 func NewMetricAgent(cfg *Config) *MetricAgent {
 	return &MetricAgent{
 		gauges:  make(map[string]float64),
-		baseURL: "http://" + cfg.Address + "/update/{metricsType}/{metricsName}/{metricsValue}",
+		baseURL: "http://" + cfg.Address + "/update",
 	}
 }
 
 func (m *MetricAgent) SendMetrics(client *resty.Client) {
 	for name, value := range m.gauges {
-		if err := sendMetric(client, m.baseURL, models.Gauge, name,
-			strconv.FormatFloat(value, 'g', -1, 64)); err != nil {
+		if err := sendMetric(client, m.baseURL, models.Gauge, name, 0, value); err != nil {
 			log.Printf("Error sending gauge %s: %s\n", name, err)
 		}
 	}
-	if err := sendMetric(client, m.baseURL, models.Gauge, "randomValue",
-		strconv.FormatFloat(m.randomValue, 'g', -1, 64)); err != nil {
+	if err := sendMetric(client, m.baseURL, models.Gauge, "RandomValue", 0, m.randomValue); err != nil {
 		log.Printf("Error sending randomValue: %s\n", err)
 	}
-	if err := sendMetric(client, m.baseURL, models.Counter, "pollCount",
-		strconv.FormatInt(m.pollCount, 10)); err != nil {
+	if err := sendMetric(client, m.baseURL, models.Counter, "PollCount", m.pollCount, 0); err != nil {
 		log.Printf("Error sending counter: %s\n", err)
 		return
 	}
 	m.pollCount = 0
 }
 
-func sendMetric(client *resty.Client, url, mType, name, value string) error {
+func sendMetric(client *resty.Client, url, mType, name string, delta int64, value float64) error {
+	var req models.Metrics
+	switch mType {
+	case "counter":
+		req.Delta = &delta
+	case "gauge":
+		req.Value = &value
+	}
+	req.MType = mType
+	req.ID = name
+	jsonBody, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+
 	resp, err := client.R().
-		SetPathParams(map[string]string{
-			"metricsType":  mType,
-			"metricsName":  name,
-			"metricsValue": value,
-		}).
-		SetHeader("content-type", "text/plain").
+		SetBody(jsonBody).
+		SetHeader("content-type", "application/json").
 		Post(url)
 
 	if err != nil {

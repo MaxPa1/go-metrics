@@ -1,14 +1,16 @@
 package agent
 
 import (
-	"fmt"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	models "github.com/MaxPa1/go-metrics/internal/model"
 	"github.com/go-resty/resty/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewMetricAgent(t *testing.T) {
@@ -19,114 +21,201 @@ func TestNewMetricAgent(t *testing.T) {
 	assert.Empty(t, agent.gauges)
 	assert.Equal(t, int64(0), agent.pollCount)
 	assert.Equal(t, float64(0), agent.randomValue)
-	assert.Equal(t, "http://localhost:8080/update/{metricsType}/{metricsName}/{metricsValue}", agent.baseURL)
+	assert.Equal(t, "http://localhost:8080/update", agent.baseURL)
 }
 
 func TestMetricAgent_SendMetrics(t *testing.T) {
-	var receivedPaths []string
+	type requestData struct {
+		path        string
+		contentType string
+		metric      models.Metrics
+	}
+
+	var requests []requestData
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, "text/plain", r.Header.Get("Content-Type"))
-		receivedPaths = append(receivedPaths, r.URL.Path)
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err, "failed to read request body")
+
+		var m models.Metrics
+		err = json.Unmarshal(body, &m)
+		require.NoError(t, err, "failed to unmarshal JSON")
+
+		requests = append(requests, requestData{
+			path:        r.URL.Path,
+			contentType: r.Header.Get("Content-Type"),
+			metric:      m,
+		})
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
 	restyClient := resty.NewWithClient(server.Client())
 
-	type fields struct {
+	tests := []struct {
+		name        string
 		pollCount   int64
 		randomValue float64
 		gauges      map[string]float64
-	}
-	tests := []struct {
-		name   string
-		fields fields
 	}{
 		{
-			"1",
-			fields{3, 52.2, map[string]float64{"cpu": 72.2, "memory": 23.1}},
+			name:        "1",
+			pollCount:   3,
+			randomValue: 52.2,
+			gauges: map[string]float64{
+				"cpu":    72.2,
+				"memory": 23.1,
+			},
 		},
 		{
-			"2",
-			fields{7, 2.2, map[string]float64{"SYS": 7.1, "LastGC": 11.1, "HeapInuse": 41.2}},
+			name:        "2",
+			pollCount:   7,
+			randomValue: 2.2,
+			gauges: map[string]float64{
+				"SYS":       7.1,
+				"LastGC":    11.1,
+				"HeapInuse": 41.2,
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			receivedPaths = nil
+			requests = nil
 
 			m := &MetricAgent{
-				pollCount:   tt.fields.pollCount,
-				randomValue: tt.fields.randomValue,
-				gauges:      tt.fields.gauges,
-				baseURL:     server.URL + "/update/{metricsType}/{metricsName}/{metricsValue}",
+				pollCount:   tt.pollCount,
+				randomValue: tt.randomValue,
+				gauges:      tt.gauges,
+				baseURL:     server.URL + "/update",
 			}
 			m.SendMetrics(restyClient)
 
-			expectedCount := len(m.gauges) + 2
-			assert.Len(t, receivedPaths, expectedCount, "should send all metrics")
+			expectedCount := len(tt.gauges) + 2
+			require.Len(t, requests, expectedCount)
 
-			for name, value := range tt.fields.gauges {
-				expectedPath := fmt.Sprintf("/update/gauge/%s/%v", name, value)
-				assert.Contains(t, receivedPaths, expectedPath, "missing gauge metric %s", name)
+			metricsByID := make(map[string]models.Metrics)
+			for _, req := range requests {
+				assert.Equal(t, "/update", req.path)
+				assert.Equal(t, "application/json", req.contentType)
+				metricsByID[req.metric.ID] = req.metric
 			}
 
-			expectedRandomPath := fmt.Sprintf("/update/gauge/randomValue/%v", tt.fields.randomValue)
-			assert.Contains(t, receivedPaths, expectedRandomPath)
+			for name, value := range tt.gauges {
+				metric, ok := metricsByID[name]
+				require.Truef(t, ok, "missing gauge metric %s", name)
+				assert.Equal(t, "gauge", metric.MType, "metric %s should be gauge", name)
+				require.NotNil(t, metric.Value, "gauge %s should have Value", name)
+				assert.InDelta(t, value, *metric.Value, 0.0001, "value mismatch for gauge %s", name)
+				assert.Nil(t, metric.Delta, "gauge %s should not have Delta", name)
+			}
 
-			expectedPollPath := fmt.Sprintf("/update/counter/pollCount/%d", tt.fields.pollCount)
-			assert.Contains(t, receivedPaths, expectedPollPath)
+			randomMetric, ok := metricsByID["RandomValue"]
+			require.True(t, ok, "missing gauge RandomValue")
+			assert.Equal(t, "gauge", randomMetric.MType)
+			require.NotNil(t, randomMetric.Value)
+			assert.InDelta(t, tt.randomValue, *randomMetric.Value, 0.0001)
+
+			pollMetric, ok := metricsByID["PollCount"]
+			require.True(t, ok, "missing counter PollCount")
+			assert.Equal(t, "counter", pollMetric.MType)
+			require.NotNil(t, pollMetric.Delta)
+			assert.Equal(t, tt.pollCount, *pollMetric.Delta)
+			assert.Nil(t, pollMetric.Value)
+
+			assert.Equal(t, int64(0), m.pollCount)
 		})
 	}
 }
 
 func TestSendMetric(t *testing.T) {
-	var receivedPaths string
+	var (
+		receivedPath    string
+		receivedBody    models.Metrics
+		receivedContent string
+	)
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, "text/plain", r.Header.Get("Content-Type"))
-		assert.Empty(t, body)
-		receivedPaths = r.URL.Path
+		receivedPath = r.URL.Path
+		receivedContent = r.Header.Get("Content-Type")
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("failed to read request body: %v", err)
+		}
+		if err := json.Unmarshal(body, &receivedBody); err != nil {
+			t.Fatalf("failed to unmarshal JSON: %v", err)
+		}
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
 	restyClient := resty.NewWithClient(server.Client())
 
-	type args struct {
-		mType string
-		name  string
-		value string
-	}
 	tests := []struct {
-		name string
-		args args
+		name        string
+		mType       string
+		metricID    string
+		delta       int64
+		value       float64
+		expectDelta bool
+		expectValue bool
 	}{
 		{
-			"1",
-			args{"counter", "pollCount", "355"},
+			name:        "counter",
+			mType:       "counter",
+			metricID:    "PollCount",
+			delta:       355,
+			value:       0,
+			expectDelta: true,
+			expectValue: false,
 		},
 		{
-			"2",
-			args{"gauge", "randomValue", "333.6"},
+			name:        "gauge",
+			mType:       "gauge",
+			metricID:    "RandomValue",
+			delta:       0,
+			value:       333.6,
+			expectDelta: false,
+			expectValue: true,
 		},
 		{
-			"3",
-			args{"gauge", "Cpu", "0.75"},
+			name:        "gauge2",
+			mType:       "gauge",
+			metricID:    "Cpu",
+			delta:       0,
+			value:       0.75,
+			expectDelta: false,
+			expectValue: true,
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := &MetricAgent{
-				baseURL: server.URL + "/update/{metricsType}/{metricsName}/{metricsValue}",
-			}
-			sendMetric(restyClient, m.baseURL, tt.args.mType, tt.args.name, tt.args.value)
+			receivedPath = ""
+			receivedContent = ""
+			receivedBody = models.Metrics{}
 
-			expectedPath := fmt.Sprintf("/update/%s/%s/%s", tt.args.mType, tt.args.name, tt.args.value)
-			assert.Equal(t, expectedPath, receivedPaths, "should send metric")
+			m := &MetricAgent{
+				baseURL: server.URL + "/update",
+			}
+
+			err := sendMetric(restyClient, m.baseURL, tt.mType, tt.metricID, tt.delta, tt.value)
+			require.NoError(t, err)
+
+			assert.Equal(t, "/update", receivedPath)
+			assert.Equal(t, "application/json", receivedContent)
+			assert.Equal(t, tt.metricID, receivedBody.ID)
+			assert.Equal(t, tt.mType, receivedBody.MType)
+
+			if tt.expectDelta {
+				require.NotNil(t, receivedBody.Delta)
+				assert.Equal(t, tt.delta, *receivedBody.Delta)
+				assert.Nil(t, receivedBody.Value)
+			} else {
+				assert.Nil(t, receivedBody.Delta)
+				require.NotNil(t, receivedBody.Value)
+				assert.InDelta(t, tt.value, *receivedBody.Value, 0.0001)
+			}
 		})
 	}
 }

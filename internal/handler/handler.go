@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"html/template"
 	"log"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/MaxPa1/go-metrics/internal/model"
 	"github.com/MaxPa1/go-metrics/internal/service"
+
 	"github.com/go-chi/chi/v5"
 )
 
@@ -123,6 +125,79 @@ func GetAllMetricsHandler(metricService MetricsService) http.HandlerFunc {
 		if err != nil {
 			log.Printf("failed to execute template: %v", err)
 			return
+		}
+	}
+}
+
+func MetricsV2Handler(metricService MetricsService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var request models.Metrics
+		err := json.NewDecoder(r.Body).Decode(&request)
+		if err != nil {
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		switch request.MType {
+		case models.Gauge:
+			if request.Value == nil {
+				http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+				return
+			}
+			metricService.RecordGauge(request.ID, *request.Value)
+		case models.Counter:
+			if request.Delta == nil {
+				http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+				return
+			}
+			metricService.RecordCounter(request.ID, *request.Delta)
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func GetMetricsV2Handler(metricService MetricsService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var request models.Metrics
+		err := json.NewDecoder(r.Body).Decode(&request)
+		if err != nil {
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		if request.ID == "" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		var response models.Metrics
+		switch request.MType {
+		case models.Gauge:
+			value, err := metricService.GetGauge(request.ID)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			response.Value = &value
+		case models.Counter:
+			value, err := metricService.GetCounter(request.ID)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			response.Delta = &value
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		response.ID = request.ID
+		response.MType = request.MType
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}
 	}
 }
