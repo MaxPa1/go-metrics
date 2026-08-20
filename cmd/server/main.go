@@ -7,9 +7,9 @@ import (
 	"github.com/MaxPa1/go-metrics/internal/config"
 	"github.com/MaxPa1/go-metrics/internal/handler"
 	"github.com/MaxPa1/go-metrics/internal/logger"
+	"github.com/MaxPa1/go-metrics/internal/middleware"
 	"github.com/MaxPa1/go-metrics/internal/repository"
 	"github.com/MaxPa1/go-metrics/internal/service"
-
 	"github.com/go-chi/chi/v5"
 )
 
@@ -34,7 +34,7 @@ func run() error {
 
 	router := chi.NewRouter()
 
-	router.Use(logger.RequestLogger)
+	router.Use(middleware.GzipMiddleware, logger.RequestLogger)
 
 	router.Post("/update/{metricsType}/{metricsName}/{metricsValue}", handler.MetricsHandler(metricService))
 	router.Post("/update/", handler.MetricsV2Handler(metricService))

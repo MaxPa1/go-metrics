@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -57,9 +59,15 @@ func sendMetric(client *resty.Client, url, mType, name string, delta int64, valu
 		return err
 	}
 
+	compressed, err := gzipCompress(jsonBody)
+	if err != nil {
+		return fmt.Errorf("compress metric: %w", err)
+	}
+
 	resp, err := client.R().
-		SetBody(jsonBody).
+		SetBody(compressed).
 		SetHeader("content-type", "application/json").
+		SetHeader("Content-Encoding", "gzip").
 		Post(url)
 
 	if err != nil {
@@ -106,4 +114,16 @@ func (m *MetricAgent) UpdateMetrics() {
 	}
 	m.pollCount++
 	m.randomValue = rand.Float64()
+}
+
+func gzipCompress(data []byte) (*bytes.Buffer, error) {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(data); err != nil {
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return &buf, nil
 }
