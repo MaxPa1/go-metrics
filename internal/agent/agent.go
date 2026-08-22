@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"runtime"
 
+	"github.com/MaxPa1/go-metrics/internal/config"
 	"github.com/MaxPa1/go-metrics/internal/model"
 	"github.com/go-resty/resty/v2"
 )
@@ -21,7 +22,7 @@ type MetricAgent struct {
 	baseURL     string
 }
 
-func NewMetricAgent(cfg *Config) *MetricAgent {
+func NewMetricAgent(cfg *config.AgentConfig) *MetricAgent {
 	return &MetricAgent{
 		gauges:  make(map[string]float64),
 		baseURL: "http://" + cfg.Address + "/update",

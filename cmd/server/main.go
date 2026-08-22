@@ -20,7 +20,7 @@ func main() {
 }
 
 func run() error {
-	cfg, err := config.LoadConfig()
+	cfg, err := config.LoadServConfig()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -29,8 +29,11 @@ func run() error {
 		log.Fatalf("failed to init logger: %v", err)
 	}
 
-	storage := repository.NewMemStorage()
-	metricService := service.NewMetricsService(storage)
+	fileStorage, err := repository.NewFileStorage(cfg.FileStoragePath, cfg.StoreInterval, cfg.Restore)
+	if err != nil {
+		log.Fatal(err)
+	}
+	metricService := service.NewMetricsService(fileStorage)
 
 	router := chi.NewRouter()
 

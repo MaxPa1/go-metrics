@@ -5,12 +5,13 @@ import (
 	"time"
 
 	"github.com/MaxPa1/go-metrics/internal/agent"
+	"github.com/MaxPa1/go-metrics/internal/config"
 
 	"github.com/go-resty/resty/v2"
 )
 
 func main() {
-	config, err := agent.LoadConfig()
+	cfg, err := config.LoadAgentConfig()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -18,15 +19,15 @@ func main() {
 	client := resty.New().
 		SetTimeout(5 * time.Second)
 
-	metricAgent := agent.NewMetricAgent(config)
+	metricAgent := agent.NewMetricAgent(cfg)
 
 	lastReport := time.Now()
 
 	for {
 		metricAgent.UpdateMetrics()
-		time.Sleep(config.PollInterval)
+		time.Sleep(cfg.PollInterval)
 
-		if time.Since(lastReport) >= config.ReportInterval {
+		if time.Since(lastReport) >= cfg.ReportInterval {
 			metricAgent.SendMetrics(client)
 			lastReport = time.Now()
 		}

@@ -1,12 +1,14 @@
 package agent
 
 import (
+	"compress/gzip"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/MaxPa1/go-metrics/internal/config"
 	models "github.com/MaxPa1/go-metrics/internal/model"
 	"github.com/go-resty/resty/v2"
 	"github.com/stretchr/testify/assert"
@@ -14,7 +16,7 @@ import (
 )
 
 func TestNewMetricAgent(t *testing.T) {
-	agent := NewMetricAgent(&Config{Address: "localhost:8080"})
+	agent := NewMetricAgent(&config.AgentConfig{Address: "localhost:8080"})
 
 	assert.NotNil(t, agent)
 	assert.NotNil(t, agent.gauges, "gauges must not be nil")
@@ -34,7 +36,7 @@ func TestMetricAgent_SendMetrics(t *testing.T) {
 	var requests []requestData
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
+		body, err := readBody(r)
 		require.NoError(t, err, "failed to read request body")
 
 		var m models.Metrics
@@ -138,7 +140,7 @@ func TestSendMetric(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedPath = r.URL.Path
 		receivedContent = r.Header.Get("Content-Type")
-		body, err := io.ReadAll(r.Body)
+		body, err := readBody(r)
 		if err != nil {
 			t.Fatalf("failed to read request body: %v", err)
 		}
@@ -246,4 +248,17 @@ func TestMetricAgent_UpdateMetrics(t *testing.T) {
 
 	m.UpdateMetrics()
 	assert.Equal(t, initialPollCount+2, m.pollCount, "pollCount should increment again")
+}
+
+func readBody(r *http.Request) ([]byte, error) {
+	var reader io.Reader = r.Body
+	if r.Header.Get("Content-Encoding") == "gzip" {
+		gz, err := gzip.NewReader(r.Body)
+		if err != nil {
+			return nil, err
+		}
+		defer gz.Close()
+		reader = gz
+	}
+	return io.ReadAll(reader)
 }
