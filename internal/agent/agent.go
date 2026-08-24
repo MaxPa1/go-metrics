@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"bytes"
-	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,6 +8,7 @@ import (
 	"net/http"
 	"runtime"
 
+	"github.com/MaxPa1/go-metrics/internal/compress"
 	"github.com/MaxPa1/go-metrics/internal/config"
 	"github.com/MaxPa1/go-metrics/internal/model"
 	"github.com/go-resty/resty/v2"
@@ -60,7 +59,7 @@ func sendMetric(client *resty.Client, url, mType, name string, delta int64, valu
 		return err
 	}
 
-	compressed, err := gzipCompress(jsonBody)
+	compressed, err := compress.Compress(jsonBody)
 	if err != nil {
 		return fmt.Errorf("compress metric: %w", err)
 	}
@@ -115,16 +114,4 @@ func (m *MetricAgent) UpdateMetrics() {
 	}
 	m.pollCount++
 	m.randomValue = rand.Float64()
-}
-
-func gzipCompress(data []byte) (*bytes.Buffer, error) {
-	var buf bytes.Buffer
-	zw := gzip.NewWriter(&buf)
-	if _, err := zw.Write(data); err != nil {
-		return nil, err
-	}
-	if err := zw.Close(); err != nil {
-		return nil, err
-	}
-	return &buf, nil
 }

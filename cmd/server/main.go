@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 
@@ -22,30 +23,31 @@ func main() {
 func run() error {
 	cfg, err := config.LoadServConfig()
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("config: %w", err)
 	}
 
-	if err := logger.Initialize(cfg.LogLevel); err != nil {
-		log.Fatalf("failed to init logger: %v", err)
+	zapLog, err := logger.Initialize(cfg.LogLevel)
+	if err != nil {
+		return fmt.Errorf("logger: %w", err)
 	}
 
 	fileStorage, err := repository.NewFileStorage(cfg.FileStoragePath, cfg.StoreInterval, cfg.Restore)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("storage: %w", err)
 	}
 	metricService := service.NewMetricsService(fileStorage)
 
 	router := chi.NewRouter()
 
-	router.Use(middleware.GzipMiddleware, logger.RequestLogger)
+	router.Use(middleware.GzipMiddleware, middleware.RequestLogger(zapLog))
 
 	router.Post("/update/{metricsType}/{metricsName}/{metricsValue}", handler.MetricsHandler(metricService))
 	router.Post("/update/", handler.MetricsV2Handler(metricService))
 	router.Post("/update", handler.MetricsV2Handler(metricService))
 
 	router.Get("/value/{metricsType}/{metricsName}", handler.GetMetricsHandler(metricService))
-	router.Post("/value", handler.GetMetricsV2Handler(metricService))
-	router.Post("/value/", handler.GetMetricsV2Handler(metricService))
+	router.Post("/value", handler.GetMetricsV2Handler(metricService, zapLog))
+	router.Post("/value/", handler.GetMetricsV2Handler(metricService, zapLog))
 
 	router.Get("/", handler.GetAllMetricsHandler(metricService))
 

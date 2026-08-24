@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func TestMetricsHandler(t *testing.T) {
@@ -463,9 +464,10 @@ func TestGetMetricsV2Handler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockService := mocks.NewMetricsService(t)
+			log := zap.NewNop().Sugar()
 			tt.mockSetup(mockService)
 
-			handler := GetMetricsV2Handler(mockService)
+			handler := GetMetricsV2Handler(mockService, log)
 
 			req := httptest.NewRequest(http.MethodPost, "/value/", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")

@@ -10,6 +10,7 @@ import (
 
 	"github.com/MaxPa1/go-metrics/internal/model"
 	"github.com/MaxPa1/go-metrics/internal/service"
+	"go.uber.org/zap"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -159,7 +160,9 @@ func MetricsV2Handler(metricService MetricsService) http.HandlerFunc {
 	}
 }
 
-func GetMetricsV2Handler(metricService MetricsService) http.HandlerFunc {
+func GetMetricsV2Handler(metricService MetricsService, log *zap.SugaredLogger) http.HandlerFunc {
+	log = log.With("component", "GetMetricsV2Handler")
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		var request models.Metrics
 		err := json.NewDecoder(r.Body).Decode(&request)
@@ -197,7 +200,7 @@ func GetMetricsV2Handler(metricService MetricsService) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		if err := json.NewEncoder(w).Encode(response); err != nil {
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			log.Errorw("failed to write response body", "error", err)
 		}
 	}
 }

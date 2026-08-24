@@ -2,71 +2,48 @@ package logger
 
 import (
 	"net/http"
-	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
-var Log *zap.SugaredLogger = zap.NewNop().Sugar()
-
 type (
-	responseLogInfo struct {
-		size   int
-		status int
+	ResponseLogInfo struct {
+		Size   int
+		Status int
 	}
 
-	loggingResponseWriter struct {
+	LoggingResponseWriter struct {
 		http.ResponseWriter
-		responseInfo *responseLogInfo
+		ResponseInfo *ResponseLogInfo
 	}
 )
 
-func Initialize(logLevel string) error {
+func Initialize(logLevel string) (*zap.SugaredLogger, error) {
 	level, err := zap.ParseAtomicLevel(logLevel)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	cfg := zap.NewProductionConfig()
 	cfg.Level = level
 	cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-	logger, err := cfg.Build()
+	l, err := cfg.Build()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	Log = logger.Sugar()
-	return nil
+	return l.Sugar(), nil
 }
 
-func (l *loggingResponseWriter) Write(array []byte) (int, error) {
+func (l *LoggingResponseWriter) Write(array []byte) (int, error) {
+	if l.ResponseInfo.Status == 0 {
+		l.ResponseInfo.Status = http.StatusOK
+	}
 	size, err := l.ResponseWriter.Write(array)
-	l.responseInfo.size += size
+	l.ResponseInfo.Size += size
 	return size, err
 }
 
-func (l *loggingResponseWriter) WriteHeader(statusCode int) {
+func (l *LoggingResponseWriter) WriteHeader(statusCode int) {
 	l.ResponseWriter.WriteHeader(statusCode)
-	l.responseInfo.status = statusCode
-}
-
-func RequestLogger(h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		respLogInfo := responseLogInfo{}
-		logWriter := loggingResponseWriter{
-			ResponseWriter: w,
-			responseInfo:   &respLogInfo,
-		}
-		h.ServeHTTP(&logWriter, r)
-
-		duration := time.Since(start)
-
-		Log.Infow("request completed",
-			"uri", r.RequestURI,
-			"method", r.Method,
-			"duration", duration,
-			"status", respLogInfo.status,
-			"size", respLogInfo.size,
-		)
-	})
+	l.ResponseInfo.Status = statusCode
 }
