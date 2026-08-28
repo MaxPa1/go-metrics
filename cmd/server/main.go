@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/MaxPa1/go-metrics/internal/app"
 	"github.com/MaxPa1/go-metrics/internal/config"
 	"github.com/MaxPa1/go-metrics/internal/handler"
 	"github.com/MaxPa1/go-metrics/internal/logger"
@@ -35,6 +36,12 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("storage: %w", err)
 	}
+
+	application, err := app.New(*cfg)
+	if err != nil {
+		return fmt.Errorf("app: %w", err)
+	}
+	defer application.Close()
 	metricService := service.NewMetricsService(fileStorage)
 
 	router := chi.NewRouter()
@@ -50,6 +57,7 @@ func run() error {
 	router.Post("/value/", handler.GetMetricsV2Handler(metricService, zapLog))
 
 	router.Get("/", handler.GetAllMetricsHandler(metricService))
+	router.Get("/ping", handler.PingHandler(application))
 
 	return http.ListenAndServe(cfg.Address, router)
 }
