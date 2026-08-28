@@ -1,16 +1,21 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/MaxPa1/go-metrics/internal/mocks"
+	models "github.com/MaxPa1/go-metrics/internal/model"
 	"github.com/MaxPa1/go-metrics/internal/service"
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func TestMetricsHandler(t *testing.T) {
@@ -251,6 +256,248 @@ func TestGetAllMetricsHandler(t *testing.T) {
 			assert.Equal(t, tt.contentType, w.Header().Get("Content-Type"))
 			if tt.checkBody != nil {
 				tt.checkBody(t, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestMetricsV2Handler(t *testing.T) {
+	tests := []struct {
+		name               string
+		method             string
+		body               string
+		expectedStatus     int
+		expectRecordCall   bool
+		expectRecordType   string
+		expectedMetricName string
+		expectedValue      interface{}
+	}{
+		{
+			name:               "valid gauge",
+			method:             http.MethodPost,
+			body:               `{"id":"cpu","type":"gauge","value":75.5}`,
+			expectedStatus:     http.StatusOK,
+			expectRecordCall:   true,
+			expectRecordType:   "gauge",
+			expectedMetricName: "cpu",
+			expectedValue:      75.5,
+		},
+		{
+			name:               "valid counter",
+			method:             http.MethodPost,
+			body:               `{"id":"requests","type":"counter","delta":42}`,
+			expectedStatus:     http.StatusOK,
+			expectRecordCall:   true,
+			expectRecordType:   "counter",
+			expectedMetricName: "requests",
+			expectedValue:      int64(42),
+		},
+		{
+			name:             "method not allowed (GET)",
+			method:           http.MethodGet,
+			body:             `{"id":"cpu","type":"gauge","value":75.5}`,
+			expectedStatus:   http.StatusMethodNotAllowed,
+			expectRecordCall: false,
+		},
+		{
+			name:             "invalid json",
+			method:           http.MethodPost,
+			body:             `{"id":"cpu","type":"gauge","value":}`,
+			expectedStatus:   http.StatusBadRequest,
+			expectRecordCall: false,
+		},
+		{
+			name:             "empty body",
+			method:           http.MethodPost,
+			body:             ``,
+			expectedStatus:   http.StatusBadRequest,
+			expectRecordCall: false,
+		},
+		{
+			name:             "gauge without value",
+			method:           http.MethodPost,
+			body:             `{"id":"cpu","type":"gauge"}`,
+			expectedStatus:   http.StatusBadRequest,
+			expectRecordCall: false,
+		},
+		{
+			name:             "counter without delta",
+			method:           http.MethodPost,
+			body:             `{"id":"requests","type":"counter"}`,
+			expectedStatus:   http.StatusBadRequest,
+			expectRecordCall: false,
+		},
+		{
+			name:             "gauge with wrong value type",
+			method:           http.MethodPost,
+			body:             `{"id":"cpu","type":"gauge","value":"abc"}`,
+			expectedStatus:   http.StatusBadRequest,
+			expectRecordCall: false,
+		},
+		{
+			name:             "counter with float delta",
+			method:           http.MethodPost,
+			body:             `{"id":"requests","type":"counter","delta":12.5}`,
+			expectedStatus:   http.StatusBadRequest,
+			expectRecordCall: false,
+		},
+		{
+			name:             "unknown metric type",
+			method:           http.MethodPost,
+			body:             `{"id":"cpu","type":"histogram","value":1.0}`,
+			expectedStatus:   http.StatusBadRequest,
+			expectRecordCall: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockService := mocks.NewMetricsService(t)
+
+			if tt.expectRecordCall {
+				switch tt.expectRecordType {
+				case "gauge":
+					mockService.EXPECT().RecordGauge(tt.expectedMetricName, tt.expectedValue).Return()
+				case "counter":
+					mockService.EXPECT().RecordCounter(tt.expectedMetricName, tt.expectedValue).Return()
+				}
+			}
+
+			r := chi.NewRouter()
+			r.Post("/update/", MetricsV2Handler(mockService))
+
+			req := httptest.NewRequest(tt.method, "/update/", bytes.NewBufferString(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+
+			r.ServeHTTP(w, req)
+
+			assert.Equal(t, tt.expectedStatus, w.Code)
+		})
+	}
+}
+
+func TestGetMetricsV2Handler(t *testing.T) {
+	tests := []struct {
+		name           string
+		body           string
+		mockSetup      func(m *mocks.MetricsService)
+		expectedStatus int
+		checkBody      bool
+		expectedID     string
+		expectedType   string
+		expectedValue  float64
+		expectedDelta  int64
+	}{
+		{
+			name: "get existing gauge",
+			body: `{"id":"cpu","type":"gauge"}`,
+			mockSetup: func(m *mocks.MetricsService) {
+				m.EXPECT().GetGauge("cpu").Return(75.5, nil)
+			},
+			expectedStatus: http.StatusOK,
+			checkBody:      true,
+			expectedID:     "cpu",
+			expectedType:   models.Gauge,
+			expectedValue:  75.5,
+		},
+		{
+			name: "get existing counter",
+			body: `{"id":"requests","type":"counter"}`,
+			mockSetup: func(m *mocks.MetricsService) {
+				m.EXPECT().GetCounter("requests").Return(int64(42), nil)
+			},
+			expectedStatus: http.StatusOK,
+			checkBody:      true,
+			expectedID:     "requests",
+			expectedType:   models.Counter,
+			expectedDelta:  42,
+		},
+		{
+			name: "gauge not found",
+			body: `{"id":"missing","type":"gauge"}`,
+			mockSetup: func(m *mocks.MetricsService) {
+				m.EXPECT().GetGauge("missing").Return(0.0, service.ErrMetricNotFound)
+			},
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name: "counter not found",
+			body: `{"id":"missing","type":"counter"}`,
+			mockSetup: func(m *mocks.MetricsService) {
+				m.EXPECT().GetCounter("missing").Return(int64(0), service.ErrMetricNotFound)
+			},
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:           "unknown metric type",
+			body:           `{"id":"latency","type":"histogram"}`,
+			mockSetup:      func(m *mocks.MetricsService) {},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "empty metric name",
+			body:           `{"id":"","type":"gauge"}`,
+			mockSetup:      func(m *mocks.MetricsService) {},
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:           "missing id field",
+			body:           `{"type":"gauge"}`,
+			mockSetup:      func(m *mocks.MetricsService) {},
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:           "invalid json",
+			body:           `{"id":"cpu","type":}`,
+			mockSetup:      func(m *mocks.MetricsService) {},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "empty body",
+			body:           ``,
+			mockSetup:      func(m *mocks.MetricsService) {},
+			expectedStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockService := mocks.NewMetricsService(t)
+			log := zap.NewNop().Sugar()
+			tt.mockSetup(mockService)
+
+			handler := GetMetricsV2Handler(mockService, log)
+
+			req := httptest.NewRequest(http.MethodPost, "/value/", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+
+			handler(w, req)
+
+			assert.Equal(t, tt.expectedStatus, w.Code)
+
+			if !tt.checkBody {
+				return
+			}
+
+			assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+
+			var got models.Metrics
+			require.NoError(t, json.NewDecoder(w.Body).Decode(&got))
+
+			assert.Equal(t, tt.expectedID, got.ID)
+			assert.Equal(t, tt.expectedType, got.MType)
+
+			switch tt.expectedType {
+			case models.Gauge:
+				require.NotNil(t, got.Value)
+				assert.Equal(t, tt.expectedValue, *got.Value)
+				assert.Nil(t, got.Delta)
+			case models.Counter:
+				require.NotNil(t, got.Delta)
+				assert.Equal(t, tt.expectedDelta, *got.Delta)
+				assert.Nil(t, got.Value)
 			}
 		})
 	}
