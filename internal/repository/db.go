@@ -33,17 +33,17 @@ const (
 	`
 )
 
-type DbStorage struct {
+type DBStorage struct {
 	db *sql.DB
 }
 
-func NewDbStorage(db *sql.DB) *DbStorage {
-	return &DbStorage{
+func NewDBStorage(db *sql.DB) *DBStorage {
+	return &DBStorage{
 		db: db,
 	}
 }
 
-func (d *DbStorage) UpdateGauge(ctx context.Context, name string, value float64) error {
+func (d *DBStorage) UpdateGauge(ctx context.Context, name string, value float64) error {
 	_, err := d.db.ExecContext(ctx, updateGauge, name, value)
 	if err != nil {
 		return fmt.Errorf("update gauge %q: %w", name, err)
@@ -51,7 +51,7 @@ func (d *DbStorage) UpdateGauge(ctx context.Context, name string, value float64)
 	return nil
 }
 
-func (d *DbStorage) UpdateCounter(ctx context.Context, name string, value int64) error {
+func (d *DBStorage) UpdateCounter(ctx context.Context, name string, value int64) error {
 	_, err := d.db.ExecContext(ctx, updateCounter, name, value)
 	if err != nil {
 		return fmt.Errorf("update counter %q: %w", name, err)
@@ -59,7 +59,7 @@ func (d *DbStorage) UpdateCounter(ctx context.Context, name string, value int64)
 	return nil
 }
 
-func (d *DbStorage) FindGauge(ctx context.Context, name string) (float64, bool, error) {
+func (d *DBStorage) FindGauge(ctx context.Context, name string) (float64, bool, error) {
 	var value float64
 	err := d.db.QueryRowContext(ctx, findGauge, name).Scan(&value)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -71,7 +71,7 @@ func (d *DbStorage) FindGauge(ctx context.Context, name string) (float64, bool, 
 	return value, true, nil
 }
 
-func (d *DbStorage) FindCounter(ctx context.Context, name string) (int64, bool, error) {
+func (d *DBStorage) FindCounter(ctx context.Context, name string) (int64, bool, error) {
 	var delta int64
 	err := d.db.QueryRowContext(ctx, findCounter, name).Scan(&delta)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -83,7 +83,7 @@ func (d *DbStorage) FindCounter(ctx context.Context, name string) (int64, bool, 
 	return delta, true, nil
 }
 
-func (d *DbStorage) FindAll(ctx context.Context) (map[string]int64, map[string]float64, error) {
+func (d *DBStorage) FindAll(ctx context.Context) (map[string]int64, map[string]float64, error) {
 	rows, err := d.db.QueryContext(ctx, findAll)
 	if err != nil {
 		return nil, nil, fmt.Errorf("find all metrics: %w", err)

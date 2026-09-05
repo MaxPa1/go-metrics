@@ -39,7 +39,7 @@ func New(ctx context.Context, cfg config.ServConfig) (*App, error) {
 			return nil, fmt.Errorf("ping db: %w", err)
 		}
 		app.db = db
-		app.storage = repository.NewDbStorage(db)
+		app.storage = repository.NewDBStorage(db)
 
 	case cfg.FileStoragePath != "":
 		fs, err := repository.NewFileStorage(ctx, cfg.FileStoragePath, cfg.StoreInterval, cfg.Restore)
@@ -55,7 +55,7 @@ func New(ctx context.Context, cfg config.ServConfig) (*App, error) {
 	return app, nil
 }
 
-func (app *App) CheckDb(ctx context.Context) error {
+func (app *App) CheckDB(ctx context.Context) error {
 	err := app.db.PingContext(ctx)
 	if err != nil {
 		return err
