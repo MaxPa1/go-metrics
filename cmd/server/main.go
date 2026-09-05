@@ -1,15 +1,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 
+	"github.com/MaxPa1/go-metrics/internal/app"
 	"github.com/MaxPa1/go-metrics/internal/config"
 	"github.com/MaxPa1/go-metrics/internal/handler"
 	"github.com/MaxPa1/go-metrics/internal/logger"
 	"github.com/MaxPa1/go-metrics/internal/middleware"
-	"github.com/MaxPa1/go-metrics/internal/repository"
 	"github.com/MaxPa1/go-metrics/internal/service"
 	"github.com/go-chi/chi/v5"
 )
@@ -21,6 +22,8 @@ func main() {
 }
 
 func run() error {
+	ctx := context.Background()
+
 	cfg, err := config.LoadServConfig()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
@@ -31,14 +34,15 @@ func run() error {
 		return fmt.Errorf("logger: %w", err)
 	}
 
-	fileStorage, err := repository.NewFileStorage(cfg.FileStoragePath, cfg.StoreInterval, cfg.Restore)
+	application, err := app.New(ctx, *cfg)
 	if err != nil {
-		return fmt.Errorf("storage: %w", err)
+		return fmt.Errorf("app: %w", err)
 	}
-	metricService := service.NewMetricsService(fileStorage)
+	defer application.Close()
+
+	metricService := service.NewMetricsService(application.Storage())
 
 	router := chi.NewRouter()
-
 	router.Use(middleware.GzipMiddleware, middleware.RequestLogger(zapLog))
 
 	router.Post("/update/{metricsType}/{metricsName}/{metricsValue}", handler.MetricsHandler(metricService))
@@ -50,6 +54,7 @@ func run() error {
 	router.Post("/value/", handler.GetMetricsV2Handler(metricService, zapLog))
 
 	router.Get("/", handler.GetAllMetricsHandler(metricService))
+	router.Get("/ping", handler.PingHandler(application))
 
 	return http.ListenAndServe(cfg.Address, router)
 }

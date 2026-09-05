@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"sync"
 	"testing"
 
@@ -41,7 +42,8 @@ func TestMemStorage_UpdateCounter(t *testing.T) {
 				mutex:      &sync.Mutex{},
 				counterMap: tt.fields.data,
 			}
-			m.UpdateCounter(tt.args.name, tt.args.delta)
+			err := m.UpdateCounter(context.Background(), tt.args.name, tt.args.delta)
+			require.NoError(t, err)
 			val, ok := m.counterMap[tt.args.name]
 			require.True(t, ok)
 			assert.Equal(t, tt.want, val)
@@ -82,7 +84,8 @@ func TestMemStorage_UpdateGauge(t *testing.T) {
 				mutex:    &sync.Mutex{},
 				gaugeMap: tt.fields.data,
 			}
-			m.UpdateGauge(tt.args.name, tt.args.value)
+			err := m.UpdateGauge(context.Background(), tt.args.name, tt.args.value)
+			require.NoError(t, err)
 			val, ok := m.gaugeMap[tt.args.name]
 			require.True(t, ok)
 			assert.Equal(t, tt.want, val)
@@ -125,7 +128,8 @@ func TestMemStorage_FindGauge(t *testing.T) {
 				mutex:    &sync.Mutex{},
 				gaugeMap: tt.fields.data,
 			}
-			got, got1 := m.FindGauge(tt.args.name)
+			got, got1, err := m.FindGauge(context.Background(), tt.args.name)
+			require.NoError(t, err)
 			assert.Equalf(t, tt.want, got, "FindGauge(%v)", tt.args.name)
 			assert.Equalf(t, tt.want1, got1, "FindGauge(%v)", tt.args.name)
 		})
@@ -167,7 +171,8 @@ func TestMemStorage_FindCounter(t *testing.T) {
 				mutex:      &sync.Mutex{},
 				counterMap: tt.fields.data,
 			}
-			got, got1 := m.FindCounter(tt.args.name)
+			got, got1, err := m.FindCounter(context.Background(), tt.args.name)
+			require.NoError(t, err)
 			assert.Equalf(t, tt.want, got, "FindCounter(%v)", tt.args.name)
 			assert.Equalf(t, tt.want1, got1, "FindCounter(%v)", tt.args.name)
 		})
