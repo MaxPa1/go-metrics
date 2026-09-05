@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	models "github.com/MaxPa1/go-metrics/internal/model"
 )
 
 var ErrMetricNotFound = errors.New("metric not found")
@@ -16,6 +18,7 @@ type MetricsStorage interface {
 	UpdateCounter(ctx context.Context, name string, value int64) error
 	FindCounter(ctx context.Context, name string) (int64, bool, error)
 	FindAll(ctx context.Context) (map[string]int64, map[string]float64, error)
+	UpdateBatch(ctx context.Context, metrics []models.Metrics) error
 }
 
 type MetricsServiceImpl struct {
@@ -64,6 +67,16 @@ func (s *MetricsServiceImpl) GetCounter(ctx context.Context, name string) (int64
 		return 0, fmt.Errorf("get counter: %w", ErrMetricNotFound)
 	}
 	return value, nil
+}
+
+func (s *MetricsServiceImpl) RecordBatch(ctx context.Context, metrics []models.Metrics) error {
+	if len(metrics) == 0 {
+		return nil
+	}
+	if err := s.repository.UpdateBatch(ctx, metrics); err != nil {
+		return fmt.Errorf("record batch: %w", err)
+	}
+	return nil
 }
 
 func (s *MetricsServiceImpl) GetAll(ctx context.Context) ([]string, error) {

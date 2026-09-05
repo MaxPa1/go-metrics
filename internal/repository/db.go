@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+
+	models "github.com/MaxPa1/go-metrics/internal/model"
 )
 
 const (
@@ -81,6 +83,42 @@ func (d *DBStorage) FindCounter(ctx context.Context, name string) (int64, bool, 
 		return 0, false, fmt.Errorf("find counter %q: %w", name, err)
 	}
 	return delta, true, nil
+}
+
+func (d *DBStorage) UpdateBatch(ctx context.Context, metrics []models.Metrics) error {
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	for _, metric := range metrics {
+		switch metric.MType {
+		case models.Gauge:
+			if metric.Value == nil {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, updateGauge, metric.ID, *metric.Value); err != nil {
+				return fmt.Errorf("update gauge %q: %w", metric.ID, err)
+			}
+		case models.Counter:
+			if metric.Delta == nil {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, updateCounter, metric.ID, *metric.Delta); err != nil {
+				return fmt.Errorf("update counter %q: %w", metric.ID, err)
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
 }
 
 func (d *DBStorage) FindAll(ctx context.Context) (map[string]int64, map[string]float64, error) {

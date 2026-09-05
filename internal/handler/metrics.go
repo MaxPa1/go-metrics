@@ -34,6 +34,7 @@ type MetricsService interface {
 	RecordCounter(ctx context.Context, name string, value int64) error
 	GetCounter(ctx context.Context, name string) (int64, error)
 	GetAll(ctx context.Context) ([]string, error)
+	RecordBatch(ctx context.Context, metrics []models.Metrics) error
 }
 
 func MetricsHandler(metricService MetricsService) http.HandlerFunc {
@@ -216,6 +217,46 @@ func GetMetricsV2Handler(metricService MetricsService, log *zap.SugaredLogger) h
 		if err := json.NewEncoder(w).Encode(response); err != nil {
 			log.Errorw("failed to write response body", "error", err)
 		}
+	}
+}
+
+func MetricsListHandler(metricService MetricsService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var request []models.Metrics
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+
+		for _, metric := range request {
+			switch metric.MType {
+			case models.Gauge:
+				if metric.Value == nil {
+					http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+					return
+				}
+			case models.Counter:
+				if metric.Delta == nil {
+					http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+					return
+				}
+			default:
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+		}
+
+		if len(request) == 0 {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		if err := metricService.RecordBatch(r.Context(), request); err != nil {
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
 	}
 }
 

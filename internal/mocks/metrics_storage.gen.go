@@ -5,6 +5,7 @@ package mocks
 import (
 	context "context"
 
+	models "github.com/MaxPa1/go-metrics/internal/model"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -212,6 +213,53 @@ func (_c *MetricsStorage_FindGauge_Call) Return(_a0 float64, _a1 bool, _a2 error
 }
 
 func (_c *MetricsStorage_FindGauge_Call) RunAndReturn(run func(context.Context, string) (float64, bool, error)) *MetricsStorage_FindGauge_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateBatch provides a mock function with given fields: ctx, metrics
+func (_m *MetricsStorage) UpdateBatch(ctx context.Context, metrics []models.Metrics) error {
+	ret := _m.Called(ctx, metrics)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateBatch")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, []models.Metrics) error); ok {
+		r0 = rf(ctx, metrics)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MetricsStorage_UpdateBatch_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateBatch'
+type MetricsStorage_UpdateBatch_Call struct {
+	*mock.Call
+}
+
+// UpdateBatch is a helper method to define mock.On call
+//   - ctx context.Context
+//   - metrics []models.Metrics
+func (_e *MetricsStorage_Expecter) UpdateBatch(ctx interface{}, metrics interface{}) *MetricsStorage_UpdateBatch_Call {
+	return &MetricsStorage_UpdateBatch_Call{Call: _e.mock.On("UpdateBatch", ctx, metrics)}
+}
+
+func (_c *MetricsStorage_UpdateBatch_Call) Run(run func(ctx context.Context, metrics []models.Metrics)) *MetricsStorage_UpdateBatch_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]models.Metrics))
+	})
+	return _c
+}
+
+func (_c *MetricsStorage_UpdateBatch_Call) Return(_a0 error) *MetricsStorage_UpdateBatch_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MetricsStorage_UpdateBatch_Call) RunAndReturn(run func(context.Context, []models.Metrics) error) *MetricsStorage_UpdateBatch_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -49,6 +49,9 @@ func run() error {
 	router.Post("/update/", handler.MetricsV2Handler(metricService))
 	router.Post("/update", handler.MetricsV2Handler(metricService))
 
+	router.Post("/updates/", handler.MetricsListHandler(metricService))
+	router.Post("/updates", handler.MetricsListHandler(metricService))
+
 	router.Get("/value/{metricsType}/{metricsName}", handler.GetMetricsHandler(metricService))
 	router.Post("/value", handler.GetMetricsV2Handler(metricService, zapLog))
 	router.Post("/value/", handler.GetMetricsV2Handler(metricService, zapLog))

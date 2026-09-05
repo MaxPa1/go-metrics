@@ -88,6 +88,17 @@ func (fs *FileStorage) UpdateCounter(ctx context.Context, name string, delta int
 	return nil
 }
 
+func (fs *FileStorage) UpdateBatch(ctx context.Context, metrics []models.Metrics) error {
+	err := fs.MemStorage.UpdateBatch(ctx, metrics)
+	if err != nil {
+		return err
+	}
+	if fs.syncSave {
+		fs.Save(ctx)
+	}
+	return nil
+}
+
 func (fs *FileStorage) Save(ctx context.Context) {
 	if err := saveToFile(ctx, fs.path, fs.MemStorage); err != nil {
 		log.Printf("save metrics: %v", err)

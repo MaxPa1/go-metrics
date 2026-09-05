@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/MaxPa1/go-metrics/internal/mocks"
+	models "github.com/MaxPa1/go-metrics/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -50,6 +51,25 @@ func TestMetricsService_GetCounter(t *testing.T) {
 	value2, err2 := service.GetCounter(context.Background(), "requestCount")
 	assert.ErrorIs(t, err2, ErrMetricNotFound)
 	assert.Equal(t, int64(0), value2)
+}
+
+func TestMetricsService_RecordBatch(t *testing.T) {
+	mockRepo := mocks.NewMetricsStorage(t)
+	service := NewMetricsService(mockRepo)
+
+	gaugeValue := 75.5
+	counterDelta := int64(3)
+	batch := []models.Metrics{
+		{ID: "cpu", MType: models.Gauge, Value: &gaugeValue},
+		{ID: "call", MType: models.Counter, Delta: &counterDelta},
+	}
+
+	mockRepo.EXPECT().
+		UpdateBatch(mock.Anything, batch).
+		Return(nil)
+
+	err := service.RecordBatch(context.Background(), batch)
+	assert.NoError(t, err)
 }
 
 func TestMetricsService_GetGauge(t *testing.T) {

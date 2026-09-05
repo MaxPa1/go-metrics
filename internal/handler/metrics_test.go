@@ -386,6 +386,94 @@ func TestMetricsV2Handler(t *testing.T) {
 	}
 }
 
+func TestMetricsListHandler(t *testing.T) {
+	tests := []struct {
+		name           string
+		method         string
+		body           string
+		mockSetup      func(m *mocks.MetricsService)
+		expectedStatus int
+	}{
+		{
+			name:   "valid batch",
+			method: http.MethodPost,
+			body:   `[{"id":"cpu","type":"gauge","value":75.5},{"id":"requests","type":"counter","delta":42}]`,
+			mockSetup: func(m *mocks.MetricsService) {
+				m.EXPECT().
+					RecordBatch(mock.Anything, mock.MatchedBy(func(metrics []models.Metrics) bool {
+						return len(metrics) == 2
+					})).
+					Return(nil)
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "empty batch",
+			method:         http.MethodPost,
+			body:           `[]`,
+			mockSetup:      func(m *mocks.MetricsService) {},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "invalid json",
+			method:         http.MethodPost,
+			body:           `[{"id":"cpu","type":}]`,
+			mockSetup:      func(m *mocks.MetricsService) {},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "gauge without value",
+			method:         http.MethodPost,
+			body:           `[{"id":"cpu","type":"gauge"}]`,
+			mockSetup:      func(m *mocks.MetricsService) {},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "counter without delta",
+			method:         http.MethodPost,
+			body:           `[{"id":"requests","type":"counter"}]`,
+			mockSetup:      func(m *mocks.MetricsService) {},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "unknown metric type",
+			method:         http.MethodPost,
+			body:           `[{"id":"cpu","type":"histogram","value":1.0}]`,
+			mockSetup:      func(m *mocks.MetricsService) {},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:   "service error",
+			method: http.MethodPost,
+			body:   `[{"id":"cpu","type":"gauge","value":75.5}]`,
+			mockSetup: func(m *mocks.MetricsService) {
+				m.EXPECT().
+					RecordBatch(mock.Anything, mock.Anything).
+					Return(assert.AnError)
+			},
+			expectedStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockService := mocks.NewMetricsService(t)
+			tt.mockSetup(mockService)
+
+			r := chi.NewRouter()
+			r.Post("/updates/", MetricsListHandler(mockService))
+
+			req := httptest.NewRequest(tt.method, "/updates/", bytes.NewBufferString(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+
+			r.ServeHTTP(w, req)
+
+			assert.Equal(t, tt.expectedStatus, w.Code)
+		})
+	}
+}
+
 func TestGetMetricsV2Handler(t *testing.T) {
 	tests := []struct {
 		name           string

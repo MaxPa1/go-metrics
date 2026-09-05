@@ -4,6 +4,8 @@ import (
 	"context"
 	"maps"
 	"sync"
+
+	models "github.com/MaxPa1/go-metrics/internal/model"
 )
 
 type MemStorage struct {
@@ -46,6 +48,24 @@ func (m *MemStorage) FindCounter(_ context.Context, name string) (int64, bool, e
 	defer m.mutex.Unlock()
 	v, ok := m.counterMap[name]
 	return v, ok, nil
+}
+
+func (m *MemStorage) UpdateBatch(_ context.Context, metrics []models.Metrics) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	for _, metric := range metrics {
+		switch metric.MType {
+		case models.Counter:
+			if metric.Delta != nil {
+				m.counterMap[metric.ID] += *metric.Delta
+			}
+		case models.Gauge:
+			if metric.Value != nil {
+				m.gaugeMap[metric.ID] = *metric.Value
+			}
+		}
+	}
+	return nil
 }
 
 func (m *MemStorage) FindAll(_ context.Context) (map[string]int64, map[string]float64, error) {
