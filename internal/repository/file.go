@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,56 +18,87 @@ type FileStorage struct {
 	*MemStorage
 	path     string
 	syncSave bool
+	ticker   *time.Ticker
+	cancel   context.CancelFunc
 }
 
-func NewFileStorage(path string, interval time.Duration, restore bool) (*FileStorage, error) {
+func NewFileStorage(ctx context.Context, path string, interval time.Duration, restore bool) (*FileStorage, error) {
+	bgCtx, cancel := context.WithCancel(context.Background())
 	fs := &FileStorage{
 		MemStorage: NewMemStorage(),
 		path:       path,
 		syncSave:   interval == 0,
+		cancel:     cancel,
 	}
 
 	if restore {
-		if err := loadFromFile(path, fs.MemStorage); err != nil {
+		if err := loadFromFile(ctx, path, fs.MemStorage); err != nil {
+			cancel()
 			return nil, err
 		}
 	}
 
 	if !fs.syncSave {
-		go fs.runTicker(interval)
+		fs.ticker = time.NewTicker(interval)
+		go fs.runTicker(bgCtx)
 	}
 
 	return fs, nil
 }
 
-func (fs *FileStorage) runTicker(interval time.Duration) {
-	for range time.Tick(interval) {
-		fs.Save()
+func (fs *FileStorage) runTicker(ctx context.Context) {
+	defer fs.ticker.Stop()
+	for {
+		select {
+		case <-fs.ticker.C:
+			fs.Save(ctx)
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
-func (fs *FileStorage) UpdateGauge(name string, value float64) {
-	fs.MemStorage.UpdateGauge(name, value)
+func (fs *FileStorage) Close(ctx context.Context) error {
+	fs.cancel()
+	if err := saveToFile(ctx, fs.path, fs.MemStorage); err != nil {
+		return fmt.Errorf("final save: %w", err)
+	}
+	return nil
+}
+
+func (fs *FileStorage) UpdateGauge(ctx context.Context, name string, value float64) error {
+	err := fs.MemStorage.UpdateGauge(ctx, name, value)
+	if err != nil {
+		return err
+	}
 	if fs.syncSave {
-		fs.Save()
+		fs.Save(ctx)
 	}
+	return nil
 }
 
-func (fs *FileStorage) UpdateCounter(name string, delta int64) {
-	fs.MemStorage.UpdateCounter(name, delta)
+func (fs *FileStorage) UpdateCounter(ctx context.Context, name string, delta int64) error {
+	err := fs.MemStorage.UpdateCounter(ctx, name, delta)
+	if err != nil {
+		return err
+	}
 	if fs.syncSave {
-		fs.Save()
+		fs.Save(ctx)
 	}
+	return nil
 }
 
-func (fs *FileStorage) Save() {
-	if err := saveToFile(fs.path, fs.MemStorage); err != nil {
+func (fs *FileStorage) Save(ctx context.Context) {
+	if err := saveToFile(ctx, fs.path, fs.MemStorage); err != nil {
 		log.Printf("save metrics: %v", err)
 	}
 }
 
-func saveToFile(path string, storage *MemStorage) error {
-	counters, gauges := storage.FindAll()
+func saveToFile(ctx context.Context, path string, storage *MemStorage) error {
+	counters, gauges, err := storage.FindAll(ctx)
+	if err != nil {
+		return err
+	}
 	metrics := append(toCounterMetrics(counters), toGaugeMetrics(gauges)...)
 	data, err := json.MarshalIndent(metrics, "", "  ")
 	if err != nil {
@@ -102,7 +134,7 @@ func saveToFile(path string, storage *MemStorage) error {
 	return nil
 }
 
-func loadFromFile(path string, storage *MemStorage) error {
+func loadFromFile(ctx context.Context, path string, storage *MemStorage) error {
 	file, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -124,11 +156,17 @@ func loadFromFile(path string, storage *MemStorage) error {
 		switch m.MType {
 		case models.Counter:
 			if m.Delta != nil {
-				storage.UpdateCounter(m.ID, *m.Delta)
+				err := storage.UpdateCounter(ctx, m.ID, *m.Delta)
+				if err != nil {
+					return err
+				}
 			}
 		case models.Gauge:
 			if m.Value != nil {
-				storage.UpdateGauge(m.ID, *m.Value)
+				err := storage.UpdateGauge(ctx, m.ID, *m.Value)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}

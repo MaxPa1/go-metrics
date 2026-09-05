@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -10,11 +11,11 @@ import (
 var ErrMetricNotFound = errors.New("metric not found")
 
 type MetricsStorage interface {
-	UpdateGauge(name string, value float64)
-	FindGauge(name string) (float64, bool)
-	UpdateCounter(name string, value int64)
-	FindCounter(name string) (int64, bool)
-	FindAll() (map[string]int64, map[string]float64)
+	UpdateGauge(ctx context.Context, name string, value float64) error
+	FindGauge(ctx context.Context, name string) (float64, bool, error)
+	UpdateCounter(ctx context.Context, name string, value int64) error
+	FindCounter(ctx context.Context, name string) (int64, bool, error)
+	FindAll(ctx context.Context) (map[string]int64, map[string]float64, error)
 }
 
 type MetricsServiceImpl struct {
@@ -27,32 +28,49 @@ func NewMetricsService(repository MetricsStorage) *MetricsServiceImpl {
 	}
 }
 
-func (s *MetricsServiceImpl) RecordGauge(name string, value float64) {
-	s.repository.UpdateGauge(name, value)
+func (s *MetricsServiceImpl) RecordGauge(ctx context.Context, name string, value float64) error {
+	err := s.repository.UpdateGauge(ctx, name, value)
+	if err != nil {
+		return fmt.Errorf("record gauge: %w", err)
+	}
+	return nil
 }
 
-func (s *MetricsServiceImpl) RecordCounter(name string, value int64) {
-	s.repository.UpdateCounter(name, value)
+func (s *MetricsServiceImpl) RecordCounter(ctx context.Context, name string, value int64) error {
+	err := s.repository.UpdateCounter(ctx, name, value)
+	if err != nil {
+		return fmt.Errorf("record counter: %w", err)
+	}
+	return nil
 }
 
-func (s *MetricsServiceImpl) GetGauge(name string) (float64, error) {
-	value, ok := s.repository.FindGauge(name)
+func (s *MetricsServiceImpl) GetGauge(ctx context.Context, name string) (float64, error) {
+	value, ok, err := s.repository.FindGauge(ctx, name)
+	if err != nil {
+		return 0, fmt.Errorf("get gauge %q: %w", name, err)
+	}
 	if !ok {
-		return 0.0, fmt.Errorf("gauge %q: %w", name, ErrMetricNotFound)
+		return 0, fmt.Errorf("get gauge %q: %w", name, ErrMetricNotFound)
 	}
 	return value, nil
 }
 
-func (s *MetricsServiceImpl) GetCounter(name string) (int64, error) {
-	value, ok := s.repository.FindCounter(name)
+func (s *MetricsServiceImpl) GetCounter(ctx context.Context, name string) (int64, error) {
+	value, ok, err := s.repository.FindCounter(ctx, name)
+	if err != nil {
+		return 0, fmt.Errorf("get counter: %w", err)
+	}
 	if !ok {
-		return 0, fmt.Errorf("counter %q: %w", name, ErrMetricNotFound)
+		return 0, fmt.Errorf("get counter: %w", ErrMetricNotFound)
 	}
 	return value, nil
 }
 
-func (s *MetricsServiceImpl) GetAll() []string {
-	counters, gauges := s.repository.FindAll()
+func (s *MetricsServiceImpl) GetAll(ctx context.Context) ([]string, error) {
+	counters, gauges, err := s.repository.FindAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get all: %w", err)
+	}
 
 	list := make([]string, 0, len(counters)+len(gauges))
 
@@ -72,5 +90,5 @@ func (s *MetricsServiceImpl) GetAll() []string {
 		sb.Write(strconv.AppendFloat(nil, v, 'f', -1, 64))
 		list = append(list, sb.String())
 	}
-	return list
+	return list, nil
 }

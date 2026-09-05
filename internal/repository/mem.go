@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"maps"
 	"sync"
 )
@@ -19,41 +20,43 @@ func NewMemStorage() *MemStorage {
 	}
 }
 
-func (m *MemStorage) UpdateGauge(name string, value float64) {
+func (m *MemStorage) UpdateGauge(_ context.Context, name string, value float64) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	m.gaugeMap[name] = value
+	return nil
 }
 
-func (m *MemStorage) UpdateCounter(name string, delta int64) {
+func (m *MemStorage) UpdateCounter(_ context.Context, name string, delta int64) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	current, _ := m.counterMap[name]
-	current += delta
-	m.counterMap[name] = current
+	m.counterMap[name] += delta
+	return nil
 }
 
-func (m *MemStorage) FindGauge(name string) (float64, bool) {
+func (m *MemStorage) FindGauge(_ context.Context, name string) (float64, bool, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	v, ok := m.gaugeMap[name]
-	return v, ok
+	return v, ok, nil
 }
 
-func (m *MemStorage) FindCounter(name string) (int64, bool) {
+func (m *MemStorage) FindCounter(_ context.Context, name string) (int64, bool, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	v, ok := m.counterMap[name]
-	return v, ok
+	return v, ok, nil
 }
 
-func (m *MemStorage) FindAll() (map[string]int64, map[string]float64) {
+func (m *MemStorage) FindAll(_ context.Context) (map[string]int64, map[string]float64, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
+
 	copyCounters := make(map[string]int64, len(m.counterMap))
 	maps.Copy(copyCounters, m.counterMap)
 
 	copyGauges := make(map[string]float64, len(m.gaugeMap))
 	maps.Copy(copyGauges, m.gaugeMap)
-	return copyCounters, copyGauges
+
+	return copyCounters, copyGauges, nil
 }

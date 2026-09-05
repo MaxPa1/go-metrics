@@ -14,6 +14,7 @@ import (
 	"github.com/MaxPa1/go-metrics/internal/service"
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
@@ -92,9 +93,13 @@ func TestMetricsHandler(t *testing.T) {
 
 			if tt.expectRecordCall {
 				if tt.expectRecordType == "gauge" {
-					mockService.EXPECT().RecordGauge(tt.expectedMetricName, tt.expectedValue).Return()
+					mockService.EXPECT().
+						RecordGauge(mock.Anything, tt.expectedMetricName, tt.expectedValue).
+						Return(nil)
 				} else if tt.expectRecordType == "counter" {
-					mockService.EXPECT().RecordCounter(tt.expectedMetricName, tt.expectedValue).Return()
+					mockService.EXPECT().
+						RecordCounter(mock.Anything, tt.expectedMetricName, tt.expectedValue).
+						Return(nil)
 				}
 			}
 
@@ -124,7 +129,7 @@ func TestGetMetricsHandler(t *testing.T) {
 			name: "get existing gauge",
 			path: "/value/gauge/cpu",
 			mockSetup: func(m *mocks.MetricsService) {
-				m.EXPECT().GetGauge("cpu").Return(75.5, nil)
+				m.EXPECT().GetGauge(mock.Anything, "cpu").Return(75.5, nil)
 			},
 			expectedStatus: http.StatusOK,
 			expectedBody:   "75.5",
@@ -133,7 +138,7 @@ func TestGetMetricsHandler(t *testing.T) {
 			name: "get existing counter",
 			path: "/value/counter/requests",
 			mockSetup: func(m *mocks.MetricsService) {
-				m.EXPECT().GetCounter("requests").Return(int64(42), nil)
+				m.EXPECT().GetCounter(mock.Anything, "requests").Return(int64(42), nil)
 			},
 			expectedStatus: http.StatusOK,
 			expectedBody:   "42",
@@ -142,7 +147,7 @@ func TestGetMetricsHandler(t *testing.T) {
 			name: "gauge not found",
 			path: "/value/gauge/missing",
 			mockSetup: func(m *mocks.MetricsService) {
-				m.EXPECT().GetGauge("missing").Return(0.0, service.ErrMetricNotFound)
+				m.EXPECT().GetGauge(mock.Anything, "missing").Return(0.0, service.ErrMetricNotFound)
 			},
 			expectedStatus: http.StatusNotFound,
 			expectedBody:   "",
@@ -151,7 +156,7 @@ func TestGetMetricsHandler(t *testing.T) {
 			name: "counter not found",
 			path: "/value/counter/missing",
 			mockSetup: func(m *mocks.MetricsService) {
-				m.EXPECT().GetCounter("missing").Return(int64(0), service.ErrMetricNotFound)
+				m.EXPECT().GetCounter(mock.Anything, "missing").Return(int64(0), service.ErrMetricNotFound)
 			},
 			expectedStatus: http.StatusNotFound,
 			expectedBody:   "",
@@ -215,7 +220,7 @@ func TestGetAllMetricsHandler(t *testing.T) {
 		{
 			name: "get all metrics OK",
 			mockSetup: func(m *mocks.MetricsService) {
-				m.EXPECT().GetAll().Return([]string{"counter: 36", "gauge: 0.75"})
+				m.EXPECT().GetAll(mock.Anything).Return([]string{"counter: 36", "gauge: 0.75"}, nil)
 			},
 			expectedStatus: http.StatusOK,
 			contentType:    "text/html; charset=utf-8",
@@ -229,7 +234,7 @@ func TestGetAllMetricsHandler(t *testing.T) {
 		{
 			name: "get empty metrics OK",
 			mockSetup: func(m *mocks.MetricsService) {
-				m.EXPECT().GetAll().Return([]string{})
+				m.EXPECT().GetAll(mock.Anything).Return([]string{}, nil)
 			},
 			expectedStatus: http.StatusOK,
 			contentType:    "text/html; charset=utf-8",
@@ -357,9 +362,13 @@ func TestMetricsV2Handler(t *testing.T) {
 			if tt.expectRecordCall {
 				switch tt.expectRecordType {
 				case "gauge":
-					mockService.EXPECT().RecordGauge(tt.expectedMetricName, tt.expectedValue).Return()
+					mockService.EXPECT().
+						RecordGauge(mock.Anything, tt.expectedMetricName, tt.expectedValue).
+						Return(nil)
 				case "counter":
-					mockService.EXPECT().RecordCounter(tt.expectedMetricName, tt.expectedValue).Return()
+					mockService.EXPECT().
+						RecordCounter(mock.Anything, tt.expectedMetricName, tt.expectedValue).
+						Return(nil)
 				}
 			}
 
@@ -393,7 +402,7 @@ func TestGetMetricsV2Handler(t *testing.T) {
 			name: "get existing gauge",
 			body: `{"id":"cpu","type":"gauge"}`,
 			mockSetup: func(m *mocks.MetricsService) {
-				m.EXPECT().GetGauge("cpu").Return(75.5, nil)
+				m.EXPECT().GetGauge(mock.Anything, "cpu").Return(75.5, nil)
 			},
 			expectedStatus: http.StatusOK,
 			checkBody:      true,
@@ -405,7 +414,7 @@ func TestGetMetricsV2Handler(t *testing.T) {
 			name: "get existing counter",
 			body: `{"id":"requests","type":"counter"}`,
 			mockSetup: func(m *mocks.MetricsService) {
-				m.EXPECT().GetCounter("requests").Return(int64(42), nil)
+				m.EXPECT().GetCounter(mock.Anything, "requests").Return(int64(42), nil)
 			},
 			expectedStatus: http.StatusOK,
 			checkBody:      true,
@@ -417,7 +426,7 @@ func TestGetMetricsV2Handler(t *testing.T) {
 			name: "gauge not found",
 			body: `{"id":"missing","type":"gauge"}`,
 			mockSetup: func(m *mocks.MetricsService) {
-				m.EXPECT().GetGauge("missing").Return(0.0, service.ErrMetricNotFound)
+				m.EXPECT().GetGauge(mock.Anything, "missing").Return(0.0, service.ErrMetricNotFound)
 			},
 			expectedStatus: http.StatusNotFound,
 		},
@@ -425,7 +434,7 @@ func TestGetMetricsV2Handler(t *testing.T) {
 			name: "counter not found",
 			body: `{"id":"missing","type":"counter"}`,
 			mockSetup: func(m *mocks.MetricsService) {
-				m.EXPECT().GetCounter("missing").Return(int64(0), service.ErrMetricNotFound)
+				m.EXPECT().GetCounter(mock.Anything, "missing").Return(int64(0), service.ErrMetricNotFound)
 			},
 			expectedStatus: http.StatusNotFound,
 		},

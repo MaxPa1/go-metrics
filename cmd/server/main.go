@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,7 +11,6 @@ import (
 	"github.com/MaxPa1/go-metrics/internal/handler"
 	"github.com/MaxPa1/go-metrics/internal/logger"
 	"github.com/MaxPa1/go-metrics/internal/middleware"
-	"github.com/MaxPa1/go-metrics/internal/repository"
 	"github.com/MaxPa1/go-metrics/internal/service"
 	"github.com/go-chi/chi/v5"
 )
@@ -22,6 +22,8 @@ func main() {
 }
 
 func run() error {
+	ctx := context.Background()
+
 	cfg, err := config.LoadServConfig()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
@@ -32,20 +34,15 @@ func run() error {
 		return fmt.Errorf("logger: %w", err)
 	}
 
-	fileStorage, err := repository.NewFileStorage(cfg.FileStoragePath, cfg.StoreInterval, cfg.Restore)
-	if err != nil {
-		return fmt.Errorf("storage: %w", err)
-	}
-
-	application, err := app.New(*cfg)
+	application, err := app.New(ctx, *cfg)
 	if err != nil {
 		return fmt.Errorf("app: %w", err)
 	}
 	defer application.Close()
-	metricService := service.NewMetricsService(fileStorage)
+
+	metricService := service.NewMetricsService(application.Storage())
 
 	router := chi.NewRouter()
-
 	router.Use(middleware.GzipMiddleware, middleware.RequestLogger(zapLog))
 
 	router.Post("/update/{metricsType}/{metricsName}/{metricsValue}", handler.MetricsHandler(metricService))
