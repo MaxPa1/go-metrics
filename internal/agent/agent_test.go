@@ -2,6 +2,7 @@ package agent
 
 import (
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -23,14 +24,15 @@ func TestNewMetricAgent(t *testing.T) {
 	assert.Empty(t, agent.gauges)
 	assert.Equal(t, int64(0), agent.pollCount)
 	assert.Equal(t, float64(0), agent.randomValue)
-	assert.Equal(t, "http://localhost:8080/update", agent.baseURL)
+	assert.Equal(t, "http://localhost:8080/updates/", agent.updatesURL)
 }
 
 func TestMetricAgent_SendMetrics(t *testing.T) {
 	type requestData struct {
-		path        string
-		contentType string
-		metric      models.Metrics
+		path            string
+		contentType     string
+		contentEncoding string
+		batch           []models.Metrics
 	}
 
 	var requests []requestData
@@ -39,14 +41,15 @@ func TestMetricAgent_SendMetrics(t *testing.T) {
 		body, err := readBody(r)
 		require.NoError(t, err, "failed to read request body")
 
-		var m models.Metrics
-		err = json.Unmarshal(body, &m)
+		var batch []models.Metrics
+		err = json.Unmarshal(body, &batch)
 		require.NoError(t, err, "failed to unmarshal JSON")
 
 		requests = append(requests, requestData{
-			path:        r.URL.Path,
-			contentType: r.Header.Get("Content-Type"),
-			metric:      m,
+			path:            r.URL.Path,
+			contentType:     r.Header.Get("Content-Type"),
+			contentEncoding: r.Header.Get("Content-Encoding"),
+			batch:           batch,
 		})
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -89,18 +92,22 @@ func TestMetricAgent_SendMetrics(t *testing.T) {
 				pollCount:   tt.pollCount,
 				randomValue: tt.randomValue,
 				gauges:      tt.gauges,
-				baseURL:     server.URL + "/update",
+				updatesURL:  server.URL + "/updates/",
 			}
-			m.SendMetrics(restyClient)
+			m.SendMetrics(context.Background(), restyClient)
+
+			require.Len(t, requests, 1)
+			req := requests[0]
+			assert.Equal(t, "/updates/", req.path)
+			assert.Equal(t, "application/json", req.contentType)
+			assert.Equal(t, "gzip", req.contentEncoding)
 
 			expectedCount := len(tt.gauges) + 2
-			require.Len(t, requests, expectedCount)
+			require.Len(t, req.batch, expectedCount)
 
 			metricsByID := make(map[string]models.Metrics)
-			for _, req := range requests {
-				assert.Equal(t, "/update", req.path)
-				assert.Equal(t, "application/json", req.contentType)
-				metricsByID[req.metric.ID] = req.metric
+			for _, metric := range req.batch {
+				metricsByID[metric.ID] = metric
 			}
 
 			for name, value := range tt.gauges {
@@ -130,21 +137,23 @@ func TestMetricAgent_SendMetrics(t *testing.T) {
 	}
 }
 
-func TestSendMetric(t *testing.T) {
+func TestSendBatch(t *testing.T) {
 	var (
-		receivedPath    string
-		receivedBody    models.Metrics
-		receivedContent string
+		receivedPath            string
+		receivedContentType     string
+		receivedContentEncoding string
+		receivedBatch           []models.Metrics
 	)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedPath = r.URL.Path
-		receivedContent = r.Header.Get("Content-Type")
+		receivedContentType = r.Header.Get("Content-Type")
+		receivedContentEncoding = r.Header.Get("Content-Encoding")
 		body, err := readBody(r)
 		if err != nil {
 			t.Fatalf("failed to read request body: %v", err)
 		}
-		if err := json.Unmarshal(body, &receivedBody); err != nil {
+		if err := json.Unmarshal(body, &receivedBatch); err != nil {
 			t.Fatalf("failed to unmarshal JSON: %v", err)
 		}
 		w.WriteHeader(http.StatusOK)
@@ -153,73 +162,21 @@ func TestSendMetric(t *testing.T) {
 
 	restyClient := resty.NewWithClient(server.Client())
 
-	tests := []struct {
-		name        string
-		mType       string
-		metricID    string
-		delta       int64
-		value       float64
-		expectDelta bool
-		expectValue bool
-	}{
-		{
-			name:        "counter",
-			mType:       "counter",
-			metricID:    "PollCount",
-			delta:       355,
-			value:       0,
-			expectDelta: true,
-			expectValue: false,
-		},
-		{
-			name:        "gauge",
-			mType:       "gauge",
-			metricID:    "RandomValue",
-			delta:       0,
-			value:       333.6,
-			expectDelta: false,
-			expectValue: true,
-		},
-		{
-			name:        "gauge2",
-			mType:       "gauge",
-			metricID:    "Cpu",
-			delta:       0,
-			value:       0.75,
-			expectDelta: false,
-			expectValue: true,
-		},
+	delta := int64(355)
+	value := 333.6
+	batch := []models.Metrics{
+		{ID: "PollCount", MType: "counter", Delta: &delta},
+		{ID: "RandomValue", MType: "gauge", Value: &value},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			receivedPath = ""
-			receivedContent = ""
-			receivedBody = models.Metrics{}
+	err := sendBatch(context.Background(), restyClient, server.URL+"/updates/", batch)
+	require.NoError(t, err)
 
-			m := &MetricAgent{
-				baseURL: server.URL + "/update",
-			}
-
-			err := sendMetric(restyClient, m.baseURL, tt.mType, tt.metricID, tt.delta, tt.value)
-			require.NoError(t, err)
-
-			assert.Equal(t, "/update", receivedPath)
-			assert.Equal(t, "application/json", receivedContent)
-			assert.Equal(t, tt.metricID, receivedBody.ID)
-			assert.Equal(t, tt.mType, receivedBody.MType)
-
-			if tt.expectDelta {
-				require.NotNil(t, receivedBody.Delta)
-				assert.Equal(t, tt.delta, *receivedBody.Delta)
-				assert.Nil(t, receivedBody.Value)
-			} else {
-				assert.Nil(t, receivedBody.Delta)
-				require.NotNil(t, receivedBody.Value)
-				assert.InDelta(t, tt.value, *receivedBody.Value, 0.0001)
-			}
-		})
-	}
+	assert.Equal(t, "/updates/", receivedPath)
+	assert.Equal(t, "application/json", receivedContentType)
+	assert.Equal(t, "gzip", receivedContentEncoding)
+	require.Len(t, receivedBatch, 2)
+	assert.ElementsMatch(t, []string{"PollCount", "RandomValue"}, []string{receivedBatch[0].ID, receivedBatch[1].ID})
 }
 
 func TestMetricAgent_UpdateMetrics(t *testing.T) {

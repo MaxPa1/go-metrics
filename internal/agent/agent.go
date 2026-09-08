@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,6 +12,7 @@ import (
 	"github.com/MaxPa1/go-metrics/internal/compress"
 	"github.com/MaxPa1/go-metrics/internal/config"
 	"github.com/MaxPa1/go-metrics/internal/model"
+	"github.com/MaxPa1/go-metrics/internal/retry"
 	"github.com/go-resty/resty/v2"
 )
 
@@ -18,65 +20,70 @@ type MetricAgent struct {
 	pollCount   int64
 	randomValue float64
 	gauges      map[string]float64
-	baseURL     string
+	updatesURL  string
 }
 
 func NewMetricAgent(cfg *config.AgentConfig) *MetricAgent {
 	return &MetricAgent{
-		gauges:  make(map[string]float64),
-		baseURL: "http://" + cfg.Address + "/update",
+		gauges:     make(map[string]float64),
+		updatesURL: "http://" + cfg.Address + "/updates/",
 	}
 }
 
-func (m *MetricAgent) SendMetrics(client *resty.Client) {
-	for name, value := range m.gauges {
-		if err := sendMetric(client, m.baseURL, models.Gauge, name, 0, value); err != nil {
-			log.Printf("Error sending gauge %s: %s\n", name, err)
-		}
+func (m *MetricAgent) SendMetrics(ctx context.Context, client *resty.Client) {
+	batch := m.collectMetrics()
+	if len(batch) == 0 {
+		return
 	}
-	if err := sendMetric(client, m.baseURL, models.Gauge, "RandomValue", 0, m.randomValue); err != nil {
-		log.Printf("Error sending randomValue: %s\n", err)
-	}
-	if err := sendMetric(client, m.baseURL, models.Counter, "PollCount", m.pollCount, 0); err != nil {
-		log.Printf("Error sending counter: %s\n", err)
+
+	if err := sendBatch(ctx, client, m.updatesURL, batch); err != nil {
+		log.Printf("Error sending metrics batch: %s\n", err)
 		return
 	}
 	m.pollCount = 0
 }
 
-func sendMetric(client *resty.Client, url, mType, name string, delta int64, value float64) error {
-	var req models.Metrics
-	switch mType {
-	case "counter":
-		req.Delta = &delta
-	case "gauge":
-		req.Value = &value
+func (m *MetricAgent) collectMetrics() []models.Metrics {
+	batch := make([]models.Metrics, 0, len(m.gauges)+2)
+
+	for name, value := range m.gauges {
+		batch = append(batch, models.Metrics{ID: name, MType: models.Gauge, Value: &value})
 	}
-	req.MType = mType
-	req.ID = name
-	jsonBody, err := json.Marshal(req)
+
+	randomValue := m.randomValue
+	batch = append(batch, models.Metrics{ID: "RandomValue", MType: models.Gauge, Value: &randomValue})
+
+	pollCount := m.pollCount
+	batch = append(batch, models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &pollCount})
+
+	return batch
+}
+
+func sendBatch(ctx context.Context, client *resty.Client, url string, batch []models.Metrics) error {
+	jsonBody, err := json.Marshal(batch)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal metrics batch: %w", err)
 	}
 
 	compressed, err := compress.Compress(jsonBody)
 	if err != nil {
-		return fmt.Errorf("compress metric: %w", err)
+		return fmt.Errorf("compress metrics batch: %w", err)
 	}
 
-	resp, err := client.R().
-		SetBody(compressed).
-		SetHeader("content-type", "application/json").
-		SetHeader("Content-Encoding", "gzip").
-		Post(url)
-
-	if err != nil {
-		return fmt.Errorf("post metric %s/%s: %w", mType, name, err)
-	}
-	if resp.StatusCode() != http.StatusOK {
-		return fmt.Errorf("unexpected status for %s/%s: %d", mType, name, resp.StatusCode())
-	}
-	return nil
+	return retry.Do(ctx, retry.IsRetriableNetError, func() error {
+		resp, err := client.R().
+			SetBody(compressed).
+			SetHeader("Content-Type", "application/json").
+			SetHeader("Content-Encoding", "gzip").
+			Post(url)
+		if err != nil {
+			return fmt.Errorf("post metrics batch: %w", err)
+		}
+		if resp.StatusCode() != http.StatusOK {
+			return fmt.Errorf("unexpected status for metrics batch: %d", resp.StatusCode())
+		}
+		return nil
+	})
 }
 
 func (m *MetricAgent) UpdateMetrics() {
