@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,6 +12,7 @@ import (
 	"github.com/MaxPa1/go-metrics/internal/compress"
 	"github.com/MaxPa1/go-metrics/internal/config"
 	"github.com/MaxPa1/go-metrics/internal/model"
+	"github.com/MaxPa1/go-metrics/internal/retry"
 	"github.com/go-resty/resty/v2"
 )
 
@@ -28,13 +30,13 @@ func NewMetricAgent(cfg *config.AgentConfig) *MetricAgent {
 	}
 }
 
-func (m *MetricAgent) SendMetrics(client *resty.Client) {
+func (m *MetricAgent) SendMetrics(ctx context.Context, client *resty.Client) {
 	batch := m.collectMetrics()
 	if len(batch) == 0 {
 		return
 	}
 
-	if err := sendBatch(client, m.updatesURL, batch); err != nil {
+	if err := sendBatch(ctx, client, m.updatesURL, batch); err != nil {
 		log.Printf("Error sending metrics batch: %s\n", err)
 		return
 	}
@@ -57,7 +59,7 @@ func (m *MetricAgent) collectMetrics() []models.Metrics {
 	return batch
 }
 
-func sendBatch(client *resty.Client, url string, batch []models.Metrics) error {
+func sendBatch(ctx context.Context, client *resty.Client, url string, batch []models.Metrics) error {
 	jsonBody, err := json.Marshal(batch)
 	if err != nil {
 		return fmt.Errorf("marshal metrics batch: %w", err)
@@ -68,19 +70,20 @@ func sendBatch(client *resty.Client, url string, batch []models.Metrics) error {
 		return fmt.Errorf("compress metrics batch: %w", err)
 	}
 
-	resp, err := client.R().
-		SetBody(compressed).
-		SetHeader("Content-Type", "application/json").
-		SetHeader("Content-Encoding", "gzip").
-		Post(url)
-
-	if err != nil {
-		return fmt.Errorf("post metrics batch: %w", err)
-	}
-	if resp.StatusCode() != http.StatusOK {
-		return fmt.Errorf("unexpected status for metrics batch: %d", resp.StatusCode())
-	}
-	return nil
+	return retry.Do(ctx, retry.IsRetriableNetError, func() error {
+		resp, err := client.R().
+			SetBody(compressed).
+			SetHeader("Content-Type", "application/json").
+			SetHeader("Content-Encoding", "gzip").
+			Post(url)
+		if err != nil {
+			return fmt.Errorf("post metrics batch: %w", err)
+		}
+		if resp.StatusCode() != http.StatusOK {
+			return fmt.Errorf("unexpected status for metrics batch: %d", resp.StatusCode())
+		}
+		return nil
+	})
 }
 
 func (m *MetricAgent) UpdateMetrics() {

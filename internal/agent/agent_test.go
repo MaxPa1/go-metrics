@@ -2,6 +2,7 @@ package agent
 
 import (
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -93,7 +94,7 @@ func TestMetricAgent_SendMetrics(t *testing.T) {
 				gauges:      tt.gauges,
 				updatesURL:  server.URL + "/updates/",
 			}
-			m.SendMetrics(restyClient)
+			m.SendMetrics(context.Background(), restyClient)
 
 			require.Len(t, requests, 1)
 			req := requests[0]
@@ -168,7 +169,7 @@ func TestSendBatch(t *testing.T) {
 		{ID: "RandomValue", MType: "gauge", Value: &value},
 	}
 
-	err := sendBatch(restyClient, server.URL+"/updates/", batch)
+	err := sendBatch(context.Background(), restyClient, server.URL+"/updates/", batch)
 	require.NoError(t, err)
 
 	assert.Equal(t, "/updates/", receivedPath)

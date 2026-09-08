@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	models "github.com/MaxPa1/go-metrics/internal/model"
+	"github.com/MaxPa1/go-metrics/internal/retry"
 )
 
 const (
@@ -46,7 +47,10 @@ func NewDBStorage(db *sql.DB) *DBStorage {
 }
 
 func (d *DBStorage) UpdateGauge(ctx context.Context, name string, value float64) error {
-	_, err := d.db.ExecContext(ctx, updateGauge, name, value)
+	err := retry.Do(ctx, retry.IsRetriablePgError, func() error {
+		_, err := d.db.ExecContext(ctx, updateGauge, name, value)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("update gauge %q: %w", name, err)
 	}
@@ -54,7 +58,10 @@ func (d *DBStorage) UpdateGauge(ctx context.Context, name string, value float64)
 }
 
 func (d *DBStorage) UpdateCounter(ctx context.Context, name string, value int64) error {
-	_, err := d.db.ExecContext(ctx, updateCounter, name, value)
+	err := retry.Do(ctx, retry.IsRetriablePgError, func() error {
+		_, err := d.db.ExecContext(ctx, updateCounter, name, value)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("update counter %q: %w", name, err)
 	}
@@ -63,7 +70,9 @@ func (d *DBStorage) UpdateCounter(ctx context.Context, name string, value int64)
 
 func (d *DBStorage) FindGauge(ctx context.Context, name string) (float64, bool, error) {
 	var value float64
-	err := d.db.QueryRowContext(ctx, findGauge, name).Scan(&value)
+	err := retry.Do(ctx, retry.IsRetriablePgError, func() error {
+		return d.db.QueryRowContext(ctx, findGauge, name).Scan(&value)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false, nil
 	}
@@ -75,7 +84,9 @@ func (d *DBStorage) FindGauge(ctx context.Context, name string) (float64, bool, 
 
 func (d *DBStorage) FindCounter(ctx context.Context, name string) (int64, bool, error) {
 	var delta int64
-	err := d.db.QueryRowContext(ctx, findCounter, name).Scan(&delta)
+	err := retry.Do(ctx, retry.IsRetriablePgError, func() error {
+		return d.db.QueryRowContext(ctx, findCounter, name).Scan(&delta)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false, nil
 	}
@@ -90,6 +101,12 @@ func (d *DBStorage) UpdateBatch(ctx context.Context, metrics []models.Metrics) e
 		return nil
 	}
 
+	return retry.Do(ctx, retry.IsRetriablePgError, func() error {
+		return d.updateBatchOnce(ctx, metrics)
+	})
+}
+
+func (d *DBStorage) updateBatchOnce(ctx context.Context, metrics []models.Metrics) error {
 	tx, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -122,7 +139,12 @@ func (d *DBStorage) UpdateBatch(ctx context.Context, metrics []models.Metrics) e
 }
 
 func (d *DBStorage) FindAll(ctx context.Context) (map[string]int64, map[string]float64, error) {
-	rows, err := d.db.QueryContext(ctx, findAll)
+	var rows *sql.Rows
+	err := retry.Do(ctx, retry.IsRetriablePgError, func() error {
+		var err error
+		rows, err = d.db.QueryContext(ctx, findAll)
+		return err
+	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("find all metrics: %w", err)
 	}

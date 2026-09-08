@@ -8,6 +8,7 @@ import (
 
 	"github.com/MaxPa1/go-metrics/internal/config"
 	"github.com/MaxPa1/go-metrics/internal/repository"
+	"github.com/MaxPa1/go-metrics/internal/retry"
 	"github.com/MaxPa1/go-metrics/internal/service"
 	"github.com/MaxPa1/go-metrics/migrations"
 
@@ -37,7 +38,9 @@ func New(ctx context.Context, cfg config.ServConfig) (*App, error) {
 		db.SetConnMaxLifetime(10 * time.Minute)
 		db.SetConnMaxIdleTime(10 * time.Minute)
 
-		if err := db.PingContext(ctx); err != nil {
+		if err := retry.Do(ctx, retry.IsRetriablePgError, func() error {
+			return db.PingContext(ctx)
+		}); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("ping db: %w", err)
 		}
@@ -76,11 +79,9 @@ func runMigrations(db *sql.DB) error {
 }
 
 func (app *App) CheckDB(ctx context.Context) error {
-	err := app.db.PingContext(ctx)
-	if err != nil {
-		return err
-	}
-	return nil
+	return retry.Do(ctx, retry.IsRetriablePgError, func() error {
+		return app.db.PingContext(ctx)
+	})
 }
 
 func (app *App) Close() error {

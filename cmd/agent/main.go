@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"time"
 
@@ -11,6 +12,8 @@ import (
 )
 
 func main() {
+	ctx := context.Background()
+
 	cfg, err := config.LoadAgentConfig()
 	if err != nil {
 		log.Fatal(err)
@@ -28,7 +31,7 @@ func main() {
 		time.Sleep(cfg.PollInterval)
 
 		if time.Since(lastReport) >= cfg.ReportInterval {
-			metricAgent.SendMetrics(client)
+			metricAgent.SendMetrics(ctx, client)
 			lastReport = time.Now()
 		}
 	}
