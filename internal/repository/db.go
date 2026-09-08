@@ -139,12 +139,22 @@ func (d *DBStorage) updateBatchOnce(ctx context.Context, metrics []models.Metric
 }
 
 func (d *DBStorage) FindAll(ctx context.Context) (map[string]int64, map[string]float64, error) {
-	var rows *sql.Rows
+	var counters map[string]int64
+	var gauges map[string]float64
+
 	err := retry.Do(ctx, retry.IsRetriablePgError, func() error {
 		var err error
-		rows, err = d.db.QueryContext(ctx, findAll)
+		counters, gauges, err = d.findAllOnce(ctx)
 		return err
 	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return counters, gauges, nil
+}
+
+func (d *DBStorage) findAllOnce(ctx context.Context) (map[string]int64, map[string]float64, error) {
+	rows, err := d.db.QueryContext(ctx, findAll)
 	if err != nil {
 		return nil, nil, fmt.Errorf("find all metrics: %w", err)
 	}
