@@ -38,7 +38,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("app: %w", err)
 	}
-	defer application.Close()
+	defer application.Close(ctx)
 
 	metricService := service.NewMetricsService(application.Storage())
 
