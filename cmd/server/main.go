@@ -38,12 +38,12 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("app: %w", err)
 	}
-	defer application.Close()
+	defer application.Close(ctx)
 
 	metricService := service.NewMetricsService(application.Storage())
 
 	router := chi.NewRouter()
-	router.Use(middleware.GzipMiddleware, middleware.RequestLogger(zapLog))
+	router.Use(middleware.GzipMiddleware, middleware.RequestLogger(zapLog), middleware.HashMiddleware(cfg.Key))
 
 	router.Post("/update/{metricsType}/{metricsName}/{metricsValue}", handler.MetricsHandler(metricService))
 	router.Post("/update/", handler.MetricsV2Handler(metricService))

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/MaxPa1/go-metrics/internal/config"
+	"github.com/MaxPa1/go-metrics/internal/hash"
 	models "github.com/MaxPa1/go-metrics/internal/model"
 	"github.com/go-resty/resty/v2"
 	"github.com/stretchr/testify/assert"
@@ -17,9 +18,10 @@ import (
 )
 
 func TestNewMetricAgent(t *testing.T) {
-	agent := NewMetricAgent(&config.AgentConfig{Address: "localhost:8080"})
+	agent := NewMetricAgent(&config.AgentConfig{Address: "localhost:8080", Key: "secret"})
 
 	assert.NotNil(t, agent)
+	assert.Equal(t, "secret", agent.key)
 	assert.NotNil(t, agent.gauges, "gauges must not be nil")
 	assert.Empty(t, agent.gauges)
 	assert.Equal(t, int64(0), agent.pollCount)
@@ -169,7 +171,7 @@ func TestSendBatch(t *testing.T) {
 		{ID: "RandomValue", MType: "gauge", Value: &value},
 	}
 
-	err := sendBatch(context.Background(), restyClient, server.URL+"/updates/", batch)
+	err := sendBatch(context.Background(), restyClient, server.URL+"/updates/", "", batch)
 	require.NoError(t, err)
 
 	assert.Equal(t, "/updates/", receivedPath)
@@ -177,6 +179,41 @@ func TestSendBatch(t *testing.T) {
 	assert.Equal(t, "gzip", receivedContentEncoding)
 	require.Len(t, receivedBatch, 2)
 	assert.ElementsMatch(t, []string{"PollCount", "RandomValue"}, []string{receivedBatch[0].ID, receivedBatch[1].ID})
+}
+
+func TestSendBatch_Signature(t *testing.T) {
+	var (
+		headerPresent bool
+		gotHeader     string
+		gotBody       []byte
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headerPresent = len(r.Header.Values(hash.Header)) > 0
+		gotHeader = r.Header.Get(hash.Header)
+		var err error
+		gotBody, err = readBody(r)
+		require.NoError(t, err)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	restyClient := resty.NewWithClient(server.Client())
+	delta := int64(1)
+	batch := []models.Metrics{{ID: "PollCount", MType: "counter", Delta: &delta}}
+
+	t.Run("with key", func(t *testing.T) {
+		require.NoError(t, sendBatch(context.Background(), restyClient, server.URL, "secret", batch))
+
+		assert.True(t, headerPresent)
+		assert.True(t, hash.Valid("secret", gotBody, gotHeader), "header must be HMAC of the uncompressed JSON body")
+	})
+
+	t.Run("without key", func(t *testing.T) {
+		require.NoError(t, sendBatch(context.Background(), restyClient, server.URL, "", batch))
+
+		assert.False(t, headerPresent, "header must not be sent without a key")
+	})
 }
 
 func TestMetricAgent_UpdateMetrics(t *testing.T) {

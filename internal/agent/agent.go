@@ -11,6 +11,7 @@ import (
 
 	"github.com/MaxPa1/go-metrics/internal/compress"
 	"github.com/MaxPa1/go-metrics/internal/config"
+	"github.com/MaxPa1/go-metrics/internal/hash"
 	"github.com/MaxPa1/go-metrics/internal/model"
 	"github.com/MaxPa1/go-metrics/internal/retry"
 	"github.com/go-resty/resty/v2"
@@ -21,12 +22,14 @@ type MetricAgent struct {
 	randomValue float64
 	gauges      map[string]float64
 	updatesURL  string
+	key         string
 }
 
 func NewMetricAgent(cfg *config.AgentConfig) *MetricAgent {
 	return &MetricAgent{
 		gauges:     make(map[string]float64),
 		updatesURL: "http://" + cfg.Address + "/updates/",
+		key:        cfg.Key,
 	}
 }
 
@@ -36,7 +39,7 @@ func (m *MetricAgent) SendMetrics(ctx context.Context, client *resty.Client) {
 		return
 	}
 
-	if err := sendBatch(ctx, client, m.updatesURL, batch); err != nil {
+	if err := sendBatch(ctx, client, m.updatesURL, m.key, batch); err != nil {
 		log.Printf("Error sending metrics batch: %s\n", err)
 		return
 	}
@@ -59,10 +62,15 @@ func (m *MetricAgent) collectMetrics() []models.Metrics {
 	return batch
 }
 
-func sendBatch(ctx context.Context, client *resty.Client, url string, batch []models.Metrics) error {
+func sendBatch(ctx context.Context, client *resty.Client, url, key string, batch []models.Metrics) error {
 	jsonBody, err := json.Marshal(batch)
 	if err != nil {
 		return fmt.Errorf("marshal metrics batch: %w", err)
+	}
+
+	var signature string
+	if key != "" {
+		signature = hash.Sum(key, jsonBody)
 	}
 
 	compressed, err := compress.Compress(jsonBody)
@@ -71,11 +79,15 @@ func sendBatch(ctx context.Context, client *resty.Client, url string, batch []mo
 	}
 
 	return retry.Do(ctx, retry.IsRetriableNetError, func() error {
-		resp, err := client.R().
+		req := client.R().
 			SetBody(compressed).
 			SetHeader("Content-Type", "application/json").
-			SetHeader("Content-Encoding", "gzip").
-			Post(url)
+			SetHeader("Content-Encoding", "gzip")
+		if signature != "" {
+			req.SetHeader(hash.Header, signature)
+		}
+
+		resp, err := req.Post(url)
 		if err != nil {
 			return fmt.Errorf("post metrics batch: %w", err)
 		}

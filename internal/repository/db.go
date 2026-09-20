@@ -34,6 +34,18 @@ const (
 	findAll = `
 		SELECT id, type, delta, value FROM metrics
 	`
+
+	updateGaugeBatch = `
+		INSERT INTO metrics (id, type, value)
+		SELECT unnest($1::text[]), 'gauge', unnest($2::double precision[])
+		ON CONFLICT (id, type) DO UPDATE SET value = EXCLUDED.value
+	`
+
+	updateCounterBatch = `
+		INSERT INTO metrics (id, type, delta)
+		SELECT unnest($1::text[]), 'counter', unnest($2::bigint[])
+		ON CONFLICT (id, type) DO UPDATE SET delta = metrics.delta + EXCLUDED.delta
+	`
 )
 
 type DBStorage struct {
@@ -107,28 +119,23 @@ func (d *DBStorage) UpdateBatch(ctx context.Context, metrics []models.Metrics) e
 }
 
 func (d *DBStorage) updateBatchOnce(ctx context.Context, metrics []models.Metrics) error {
+	gaugeIDs, gaugeValues, counterIDs, counterDeltas := splitBatch(metrics)
+
 	tx, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
-	for _, metric := range metrics {
-		switch metric.MType {
-		case models.Gauge:
-			if metric.Value == nil {
-				continue
-			}
-			if _, err := tx.ExecContext(ctx, updateGauge, metric.ID, *metric.Value); err != nil {
-				return fmt.Errorf("update gauge %q: %w", metric.ID, err)
-			}
-		case models.Counter:
-			if metric.Delta == nil {
-				continue
-			}
-			if _, err := tx.ExecContext(ctx, updateCounter, metric.ID, *metric.Delta); err != nil {
-				return fmt.Errorf("update counter %q: %w", metric.ID, err)
-			}
+	if len(gaugeIDs) > 0 {
+		if _, err := tx.ExecContext(ctx, updateGaugeBatch, gaugeIDs, gaugeValues); err != nil {
+			return fmt.Errorf("update gauges batch: %w", err)
+		}
+	}
+
+	if len(counterIDs) > 0 {
+		if _, err := tx.ExecContext(ctx, updateCounterBatch, counterIDs, counterDeltas); err != nil {
+			return fmt.Errorf("update counters batch: %w", err)
 		}
 	}
 
@@ -136,6 +143,39 @@ func (d *DBStorage) updateBatchOnce(ctx context.Context, metrics []models.Metric
 		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
+}
+
+func splitBatch(metrics []models.Metrics) (gaugeIDs []string, gaugeValues []float64, counterIDs []string, counterDeltas []int64) {
+	gaugeIdx := make(map[string]int, len(metrics))
+	counterIdx := make(map[string]int, len(metrics))
+
+	for _, metric := range metrics {
+		switch metric.MType {
+		case models.Gauge:
+			if metric.Value == nil {
+				continue
+			}
+			if idx, ok := gaugeIdx[metric.ID]; ok {
+				gaugeValues[idx] = *metric.Value
+				continue
+			}
+			gaugeIdx[metric.ID] = len(gaugeIDs)
+			gaugeIDs = append(gaugeIDs, metric.ID)
+			gaugeValues = append(gaugeValues, *metric.Value)
+		case models.Counter:
+			if metric.Delta == nil {
+				continue
+			}
+			if idx, ok := counterIdx[metric.ID]; ok {
+				counterDeltas[idx] += *metric.Delta
+				continue
+			}
+			counterIdx[metric.ID] = len(counterIDs)
+			counterIDs = append(counterIDs, metric.ID)
+			counterDeltas = append(counterDeltas, *metric.Delta)
+		}
+	}
+	return gaugeIDs, gaugeValues, counterIDs, counterDeltas
 }
 
 func (d *DBStorage) FindAll(ctx context.Context) (map[string]int64, map[string]float64, error) {
