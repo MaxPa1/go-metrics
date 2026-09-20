@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"html/template"
@@ -28,11 +29,12 @@ const tmpl = `
 </html>`
 
 type MetricsService interface {
-	RecordGauge(name string, value float64)
-	GetGauge(name string) (float64, error)
-	RecordCounter(name string, value int64)
-	GetCounter(name string) (int64, error)
-	GetAll() []string
+	RecordGauge(ctx context.Context, name string, value float64) error
+	GetGauge(ctx context.Context, name string) (float64, error)
+	RecordCounter(ctx context.Context, name string, value int64) error
+	GetCounter(ctx context.Context, name string) (int64, error)
+	GetAll(ctx context.Context) ([]string, error)
+	RecordBatch(ctx context.Context, metrics []models.Metrics) error
 }
 
 func MetricsHandler(metricService MetricsService) http.HandlerFunc {
@@ -45,23 +47,28 @@ func MetricsHandler(metricService MetricsService) http.HandlerFunc {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
+		var err error
 		switch metricsType {
 		case models.Gauge:
-			val, err := strconv.ParseFloat(metricsValue, 64)
-			if err != nil {
+			val, parseErr := strconv.ParseFloat(metricsValue, 64)
+			if parseErr != nil {
 				http.Error(w, "invalid gauge value", http.StatusBadRequest)
 				return
 			}
-			metricService.RecordGauge(metricsName, val)
+			err = metricService.RecordGauge(r.Context(), metricsName, val)
 		case models.Counter:
-			val, err := strconv.ParseInt(metricsValue, 10, 64)
-			if err != nil {
+			val, parseErr := strconv.ParseInt(metricsValue, 10, 64)
+			if parseErr != nil {
 				http.Error(w, "invalid counter value", http.StatusBadRequest)
 				return
 			}
-			metricService.RecordCounter(metricsName, val)
+			err = metricService.RecordCounter(r.Context(), metricsName, val)
 		default:
 			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
 
@@ -81,14 +88,14 @@ func GetMetricsHandler(metricService MetricsService) http.HandlerFunc {
 		var body string
 		switch metricsType {
 		case models.Gauge:
-			value, err := metricService.GetGauge(metricsName)
+			value, err := metricService.GetGauge(r.Context(), metricsName)
 			if err != nil {
 				writeError(w, err)
 				return
 			}
 			body = strconv.FormatFloat(value, 'f', -1, 64)
 		case models.Counter:
-			value, err := metricService.GetCounter(metricsName)
+			value, err := metricService.GetCounter(r.Context(), metricsName)
 			if err != nil {
 				writeError(w, err)
 				return
@@ -118,11 +125,15 @@ func GetAllMetricsHandler(metricService MetricsService) http.HandlerFunc {
 		}
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		metrics := metricService.GetAll()
+		metrics, err := metricService.GetAll(r.Context())
+		if err != nil {
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		err := t.Execute(w, metrics)
+		err = t.Execute(w, metrics)
 		if err != nil {
 			log.Printf("failed to execute template: %v", err)
 			return
@@ -133,26 +144,30 @@ func GetAllMetricsHandler(metricService MetricsService) http.HandlerFunc {
 func MetricsV2Handler(metricService MetricsService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var request models.Metrics
-		err := json.NewDecoder(r.Body).Decode(&request)
-		if err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
 		}
+		var err error
 		switch request.MType {
 		case models.Gauge:
 			if request.Value == nil {
 				http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 				return
 			}
-			metricService.RecordGauge(request.ID, *request.Value)
+			err = metricService.RecordGauge(r.Context(), request.ID, *request.Value)
 		case models.Counter:
 			if request.Delta == nil {
 				http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 				return
 			}
-			metricService.RecordCounter(request.ID, *request.Delta)
+			err = metricService.RecordCounter(r.Context(), request.ID, *request.Delta)
 		default:
 			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
 
@@ -177,14 +192,14 @@ func GetMetricsV2Handler(metricService MetricsService, log *zap.SugaredLogger) h
 		var response models.Metrics
 		switch request.MType {
 		case models.Gauge:
-			value, err := metricService.GetGauge(request.ID)
+			value, err := metricService.GetGauge(r.Context(), request.ID)
 			if err != nil {
 				writeError(w, err)
 				return
 			}
 			response.Value = &value
 		case models.Counter:
-			value, err := metricService.GetCounter(request.ID)
+			value, err := metricService.GetCounter(r.Context(), request.ID)
 			if err != nil {
 				writeError(w, err)
 				return
@@ -202,6 +217,46 @@ func GetMetricsV2Handler(metricService MetricsService, log *zap.SugaredLogger) h
 		if err := json.NewEncoder(w).Encode(response); err != nil {
 			log.Errorw("failed to write response body", "error", err)
 		}
+	}
+}
+
+func MetricsListHandler(metricService MetricsService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var request []models.Metrics
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+
+		for _, metric := range request {
+			switch metric.MType {
+			case models.Gauge:
+				if metric.Value == nil {
+					http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+					return
+				}
+			case models.Counter:
+				if metric.Delta == nil {
+					http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+					return
+				}
+			default:
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+		}
+
+		if len(request) == 0 {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		if err := metricService.RecordBatch(r.Context(), request); err != nil {
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
 	}
 }
 

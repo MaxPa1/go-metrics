@@ -1,9 +1,11 @@
 package repository
 
 import (
+	"context"
 	"sync"
 	"testing"
 
+	models "github.com/MaxPa1/go-metrics/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,7 +43,8 @@ func TestMemStorage_UpdateCounter(t *testing.T) {
 				mutex:      &sync.Mutex{},
 				counterMap: tt.fields.data,
 			}
-			m.UpdateCounter(tt.args.name, tt.args.delta)
+			err := m.UpdateCounter(context.Background(), tt.args.name, tt.args.delta)
+			require.NoError(t, err)
 			val, ok := m.counterMap[tt.args.name]
 			require.True(t, ok)
 			assert.Equal(t, tt.want, val)
@@ -82,12 +85,35 @@ func TestMemStorage_UpdateGauge(t *testing.T) {
 				mutex:    &sync.Mutex{},
 				gaugeMap: tt.fields.data,
 			}
-			m.UpdateGauge(tt.args.name, tt.args.value)
+			err := m.UpdateGauge(context.Background(), tt.args.name, tt.args.value)
+			require.NoError(t, err)
 			val, ok := m.gaugeMap[tt.args.name]
 			require.True(t, ok)
 			assert.Equal(t, tt.want, val)
 		})
 	}
+}
+
+func TestMemStorage_UpdateBatch(t *testing.T) {
+	m := &MemStorage{
+		mutex:      &sync.Mutex{},
+		counterMap: map[string]int64{"calls": 4},
+		gaugeMap:   map[string]float64{"cpu": 0.32},
+	}
+
+	gaugeValue := 0.76
+	counterDelta := int64(1)
+	err := m.UpdateBatch(context.Background(), []models.Metrics{
+		{ID: "cpu", MType: models.Gauge, Value: &gaugeValue},
+		{ID: "calls", MType: models.Counter, Delta: &counterDelta},
+		{ID: "memory", MType: models.Gauge, Value: nil},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, 0.76, m.gaugeMap["cpu"])
+	assert.Equal(t, int64(5), m.counterMap["calls"])
+	_, ok := m.gaugeMap["memory"]
+	assert.False(t, ok)
 }
 
 func TestMemStorage_FindGauge(t *testing.T) {
@@ -125,7 +151,8 @@ func TestMemStorage_FindGauge(t *testing.T) {
 				mutex:    &sync.Mutex{},
 				gaugeMap: tt.fields.data,
 			}
-			got, got1 := m.FindGauge(tt.args.name)
+			got, got1, err := m.FindGauge(context.Background(), tt.args.name)
+			require.NoError(t, err)
 			assert.Equalf(t, tt.want, got, "FindGauge(%v)", tt.args.name)
 			assert.Equalf(t, tt.want1, got1, "FindGauge(%v)", tt.args.name)
 		})
@@ -167,7 +194,8 @@ func TestMemStorage_FindCounter(t *testing.T) {
 				mutex:      &sync.Mutex{},
 				counterMap: tt.fields.data,
 			}
-			got, got1 := m.FindCounter(tt.args.name)
+			got, got1, err := m.FindCounter(context.Background(), tt.args.name)
+			require.NoError(t, err)
 			assert.Equalf(t, tt.want, got, "FindCounter(%v)", tt.args.name)
 			assert.Equalf(t, tt.want1, got1, "FindCounter(%v)", tt.args.name)
 		})
