@@ -14,6 +14,7 @@ type AgentConfig struct {
 	Address        string        `env:"ADDRESS"`
 	PollInterval   time.Duration `env:"POLL_INTERVAL"`
 	ReportInterval time.Duration `env:"REPORT_INTERVAL"`
+	Key            string        `env:"KEY"`
 }
 
 func LoadAgentConfig() (*AgentConfig, error) {
@@ -23,6 +24,7 @@ func LoadAgentConfig() (*AgentConfig, error) {
 	flag.StringVar(&cfg.Address, "a", "localhost:8080", "server address")
 	flag.IntVar(&pollSeconds, "p", 2, "poll interval in seconds")
 	flag.IntVar(&reportSeconds, "r", 10, "report interval in seconds")
+	flag.StringVar(&cfg.Key, "k", "", "signing key")
 	flag.Parse()
 
 	cfg.PollInterval = time.Duration(pollSeconds) * time.Second
