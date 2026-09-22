@@ -15,6 +15,7 @@ type AgentConfig struct {
 	PollInterval   time.Duration `env:"POLL_INTERVAL"`
 	ReportInterval time.Duration `env:"REPORT_INTERVAL"`
 	Key            string        `env:"KEY"`
+	RateLimit      int           `env:"RATE_LIMIT"`
 }
 
 func LoadAgentConfig() (*AgentConfig, error) {
@@ -25,6 +26,7 @@ func LoadAgentConfig() (*AgentConfig, error) {
 	flag.IntVar(&pollSeconds, "p", 2, "poll interval in seconds")
 	flag.IntVar(&reportSeconds, "r", 10, "report interval in seconds")
 	flag.StringVar(&cfg.Key, "k", "", "signing key")
+	flag.IntVar(&cfg.RateLimit, "l", 1, "max number of concurrent outgoing requests")
 	flag.Parse()
 
 	cfg.PollInterval = time.Duration(pollSeconds) * time.Second

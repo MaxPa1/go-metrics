@@ -5,61 +5,118 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"math/rand/v2"
 	"net/http"
-	"runtime"
+	"sync"
+	"time"
 
 	"github.com/MaxPa1/go-metrics/internal/compress"
 	"github.com/MaxPa1/go-metrics/internal/config"
 	"github.com/MaxPa1/go-metrics/internal/hash"
-	"github.com/MaxPa1/go-metrics/internal/model"
+	models "github.com/MaxPa1/go-metrics/internal/model"
 	"github.com/MaxPa1/go-metrics/internal/retry"
 	"github.com/go-resty/resty/v2"
 )
 
 type MetricAgent struct {
-	pollCount   int64
-	randomValue float64
-	gauges      map[string]float64
-	updatesURL  string
-	key         string
+	client         *resty.Client
+	updatesURL     string
+	key            string
+	pollInterval   time.Duration
+	reportInterval time.Duration
+	rateLimit      int
+	store          *store
 }
 
-func NewMetricAgent(cfg *config.AgentConfig) *MetricAgent {
+func NewMetricAgent(cfg *config.AgentConfig, client *resty.Client) *MetricAgent {
 	return &MetricAgent{
-		gauges:     make(map[string]float64),
-		updatesURL: "http://" + cfg.Address + "/updates/",
-		key:        cfg.Key,
+		client:         client,
+		updatesURL:     "http://" + cfg.Address + "/updates/",
+		key:            cfg.Key,
+		pollInterval:   cfg.PollInterval,
+		reportInterval: cfg.ReportInterval,
+		rateLimit:      cfg.RateLimit,
+		store:          newStore(),
 	}
 }
 
-func (m *MetricAgent) SendMetrics(ctx context.Context, client *resty.Client) {
-	batch := m.collectMetrics()
-	if len(batch) == 0 {
+func (m *MetricAgent) Run(ctx context.Context) {
+	jobs := make(chan report)
+
+	var wg sync.WaitGroup
+	wg.Go(func() { pollPeriodically(ctx, m.pollInterval, m.pollRuntime) })
+	wg.Go(func() { pollPeriodically(ctx, m.pollInterval, m.pollSystem) })
+	wg.Go(func() { m.schedule(ctx, jobs) })
+	wg.Go(func() { runWorkers(ctx, m.rateLimit, jobs, m.send) })
+	wg.Wait()
+}
+
+func (m *MetricAgent) pollRuntime(context.Context) {
+	m.store.setGauges(collectRuntimeMetrics())
+	m.store.addPollCount(1)
+}
+
+func (m *MetricAgent) pollSystem(ctx context.Context) {
+	gauges, err := collectSystemMetrics(ctx)
+	if err != nil {
+		log.Printf("Error collecting system metrics: %s\n", err)
 		return
 	}
+	m.store.setGauges(gauges)
+}
 
-	if err := sendBatch(ctx, client, m.updatesURL, m.key, batch); err != nil {
+func (m *MetricAgent) schedule(ctx context.Context, jobs chan<- report) {
+	defer close(jobs)
+
+	ticker := time.NewTicker(m.reportInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			r := m.store.snapshot()
+			select {
+			case jobs <- r:
+			default:
+				log.Printf("All %d senders are busy, skipping report\n", m.rateLimit)
+				m.store.addPollCount(r.pollCount)
+			}
+		}
+	}
+}
+
+func (m *MetricAgent) send(ctx context.Context, r report) {
+	if err := sendBatch(ctx, m.client, m.updatesURL, m.key, r.metrics); err != nil {
 		log.Printf("Error sending metrics batch: %s\n", err)
-		return
+		m.store.addPollCount(r.pollCount)
 	}
-	m.pollCount = 0
 }
 
-func (m *MetricAgent) collectMetrics() []models.Metrics {
-	batch := make([]models.Metrics, 0, len(m.gauges)+2)
-
-	for name, value := range m.gauges {
-		batch = append(batch, models.Metrics{ID: name, MType: models.Gauge, Value: &value})
+func runWorkers(ctx context.Context, n int, jobs <-chan report, handle func(context.Context, report)) {
+	var wg sync.WaitGroup
+	for range n {
+		wg.Go(func() {
+			for job := range jobs {
+				handle(ctx, job)
+			}
+		})
 	}
+	wg.Wait()
+}
 
-	randomValue := m.randomValue
-	batch = append(batch, models.Metrics{ID: "RandomValue", MType: models.Gauge, Value: &randomValue})
+func pollPeriodically(ctx context.Context, interval time.Duration, fn func(context.Context)) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 
-	pollCount := m.pollCount
-	batch = append(batch, models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &pollCount})
-
-	return batch
+	for {
+		fn(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 func sendBatch(ctx context.Context, client *resty.Client, url, key string, batch []models.Metrics) error {
@@ -80,6 +137,7 @@ func sendBatch(ctx context.Context, client *resty.Client, url, key string, batch
 
 	return retry.Do(ctx, retry.IsRetriableNetError, func() error {
 		req := client.R().
+			SetContext(ctx).
 			SetBody(compressed).
 			SetHeader("Content-Type", "application/json").
 			SetHeader("Content-Encoding", "gzip")
@@ -96,41 +154,4 @@ func sendBatch(ctx context.Context, client *resty.Client, url, key string, batch
 		}
 		return nil
 	})
-}
-
-func (m *MetricAgent) UpdateMetrics() {
-	ms := new(runtime.MemStats)
-	runtime.ReadMemStats(ms)
-
-	m.gauges = map[string]float64{
-		"Alloc":         float64(ms.Alloc),
-		"BuckHashSys":   float64(ms.BuckHashSys),
-		"Frees":         float64(ms.Frees),
-		"GCCPUFraction": ms.GCCPUFraction,
-		"GCSys":         float64(ms.GCSys),
-		"HeapAlloc":     float64(ms.HeapAlloc),
-		"HeapIdle":      float64(ms.HeapIdle),
-		"HeapInuse":     float64(ms.HeapInuse),
-		"HeapObjects":   float64(ms.HeapObjects),
-		"HeapReleased":  float64(ms.HeapReleased),
-		"HeapSys":       float64(ms.HeapSys),
-		"LastGC":        float64(ms.LastGC),
-		"Lookups":       float64(ms.Lookups),
-		"MCacheInuse":   float64(ms.MCacheInuse),
-		"MCacheSys":     float64(ms.MCacheSys),
-		"MSpanInuse":    float64(ms.MSpanInuse),
-		"MSpanSys":      float64(ms.MSpanSys),
-		"Mallocs":       float64(ms.Mallocs),
-		"NextGC":        float64(ms.NextGC),
-		"NumForcedGC":   float64(ms.NumForcedGC),
-		"NumGC":         float64(ms.NumGC),
-		"OtherSys":      float64(ms.OtherSys),
-		"PauseTotalNs":  float64(ms.PauseTotalNs),
-		"StackInuse":    float64(ms.StackInuse),
-		"StackSys":      float64(ms.StackSys),
-		"Sys":           float64(ms.Sys),
-		"TotalAlloc":    float64(ms.TotalAlloc),
-	}
-	m.pollCount++
-	m.randomValue = rand.Float64()
 }
