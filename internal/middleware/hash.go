@@ -5,7 +5,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/MaxPa1/go-metrics/internal/hash"
+	"github.com/MaxPa1/go-metrics/internal/signature"
 )
 
 func HashMiddleware(key string) func(http.Handler) http.Handler {
@@ -21,7 +21,7 @@ func HashMiddleware(key string) func(http.Handler) http.Handler {
 				return
 			}
 
-			if got := r.Header.Get(hash.Header); got != "" && !hash.Valid(key, body, got) {
+			if got := r.Header.Get(signature.Header); !signature.Valid(key, body, got) {
 				http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 				return
 			}
@@ -53,11 +53,17 @@ func (h *hashResponseWriter) Write(p []byte) (int, error) {
 	return h.body.Write(p)
 }
 
+func (h *hashResponseWriter) Flush() {
+	if f, ok := h.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 func (h *hashResponseWriter) flush(key string) {
 	if h.status == 0 {
 		h.status = http.StatusOK
 	}
-	h.Header().Set(hash.Header, hash.Sum(key, h.body.Bytes()))
+	h.Header().Set(signature.Header, signature.Sum(key, h.body.Bytes()))
 	h.ResponseWriter.WriteHeader(h.status)
 	if h.body.Len() > 0 {
 		_, _ = h.ResponseWriter.Write(h.body.Bytes())

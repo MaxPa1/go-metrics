@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	models "github.com/MaxPa1/go-metrics/internal/model"
+	"github.com/MaxPa1/go-metrics/internal/model"
 	"github.com/MaxPa1/go-metrics/internal/retry"
 )
 
@@ -119,7 +119,7 @@ func (d *DBStorage) UpdateBatch(ctx context.Context, metrics []models.Metrics) e
 }
 
 func (d *DBStorage) updateBatchOnce(ctx context.Context, metrics []models.Metrics) error {
-	gaugeIDs, gaugeValues, counterIDs, counterDeltas := splitBatch(metrics)
+	gauges, counters := splitBatch(metrics)
 
 	tx, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -127,14 +127,14 @@ func (d *DBStorage) updateBatchOnce(ctx context.Context, metrics []models.Metric
 	}
 	defer tx.Rollback()
 
-	if len(gaugeIDs) > 0 {
-		if _, err := tx.ExecContext(ctx, updateGaugeBatch, gaugeIDs, gaugeValues); err != nil {
+	if len(gauges.ids) > 0 {
+		if _, err := tx.ExecContext(ctx, updateGaugeBatch, gauges.ids, gauges.values); err != nil {
 			return fmt.Errorf("update gauges batch: %w", err)
 		}
 	}
 
-	if len(counterIDs) > 0 {
-		if _, err := tx.ExecContext(ctx, updateCounterBatch, counterIDs, counterDeltas); err != nil {
+	if len(counters.ids) > 0 {
+		if _, err := tx.ExecContext(ctx, updateCounterBatch, counters.ids, counters.deltas); err != nil {
 			return fmt.Errorf("update counters batch: %w", err)
 		}
 	}
@@ -145,7 +145,17 @@ func (d *DBStorage) updateBatchOnce(ctx context.Context, metrics []models.Metric
 	return nil
 }
 
-func splitBatch(metrics []models.Metrics) (gaugeIDs []string, gaugeValues []float64, counterIDs []string, counterDeltas []int64) {
+type gaugeBatch struct {
+	ids    []string
+	values []float64
+}
+
+type counterBatch struct {
+	ids    []string
+	deltas []int64
+}
+
+func splitBatch(metrics []models.Metrics) (gauges gaugeBatch, counters counterBatch) {
 	gaugeIdx := make(map[string]int, len(metrics))
 	counterIdx := make(map[string]int, len(metrics))
 
@@ -156,26 +166,26 @@ func splitBatch(metrics []models.Metrics) (gaugeIDs []string, gaugeValues []floa
 				continue
 			}
 			if idx, ok := gaugeIdx[metric.ID]; ok {
-				gaugeValues[idx] = *metric.Value
+				gauges.values[idx] = *metric.Value
 				continue
 			}
-			gaugeIdx[metric.ID] = len(gaugeIDs)
-			gaugeIDs = append(gaugeIDs, metric.ID)
-			gaugeValues = append(gaugeValues, *metric.Value)
+			gaugeIdx[metric.ID] = len(gauges.ids)
+			gauges.ids = append(gauges.ids, metric.ID)
+			gauges.values = append(gauges.values, *metric.Value)
 		case models.Counter:
 			if metric.Delta == nil {
 				continue
 			}
 			if idx, ok := counterIdx[metric.ID]; ok {
-				counterDeltas[idx] += *metric.Delta
+				counters.deltas[idx] += *metric.Delta
 				continue
 			}
-			counterIdx[metric.ID] = len(counterIDs)
-			counterIDs = append(counterIDs, metric.ID)
-			counterDeltas = append(counterDeltas, *metric.Delta)
+			counterIdx[metric.ID] = len(counters.ids)
+			counters.ids = append(counters.ids, metric.ID)
+			counters.deltas = append(counters.deltas, *metric.Delta)
 		}
 	}
-	return gaugeIDs, gaugeValues, counterIDs, counterDeltas
+	return gauges, counters
 }
 
 func (d *DBStorage) FindAll(ctx context.Context) (map[string]int64, map[string]float64, error) {

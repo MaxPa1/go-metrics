@@ -35,6 +35,11 @@ func LoadAgentConfig() (*AgentConfig, error) {
 	if err := env.ParseWithOptions(cfg, options); err != nil {
 		return nil, fmt.Errorf("env parse error: %w", err)
 	}
+
+	if cfg.RateLimit <= 0 {
+		return nil, fmt.Errorf("rate limit must be positive, got %d", cfg.RateLimit)
+	}
+
 	return cfg, nil
 }
 

@@ -11,9 +11,9 @@ import (
 
 	"github.com/MaxPa1/go-metrics/internal/compress"
 	"github.com/MaxPa1/go-metrics/internal/config"
-	"github.com/MaxPa1/go-metrics/internal/hash"
-	models "github.com/MaxPa1/go-metrics/internal/model"
+	"github.com/MaxPa1/go-metrics/internal/model"
 	"github.com/MaxPa1/go-metrics/internal/retry"
+	"github.com/MaxPa1/go-metrics/internal/signature"
 	"github.com/go-resty/resty/v2"
 )
 
@@ -40,7 +40,7 @@ func NewMetricAgent(cfg *config.AgentConfig, client *resty.Client) *MetricAgent 
 }
 
 func (m *MetricAgent) Run(ctx context.Context) {
-	jobs := make(chan report)
+	jobs := make(chan report, 1)
 
 	var wg sync.WaitGroup
 	wg.Go(func() { pollPeriodically(ctx, m.pollInterval, m.pollRuntime) })
@@ -75,12 +75,13 @@ func (m *MetricAgent) schedule(ctx context.Context, jobs chan<- report) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			r := m.store.snapshot()
+			gauges, pollCount := m.store.read()
+			r := report{metrics: buildBatch(gauges, pollCount), pollCount: pollCount}
 			select {
 			case jobs <- r:
+				m.store.addPollCount(-pollCount)
 			default:
 				log.Printf("All %d senders are busy, skipping report\n", m.rateLimit)
-				m.store.addPollCount(r.pollCount)
 			}
 		}
 	}
@@ -91,6 +92,20 @@ func (m *MetricAgent) send(ctx context.Context, r report) {
 		log.Printf("Error sending metrics batch: %s\n", err)
 		m.store.addPollCount(r.pollCount)
 	}
+}
+
+type report struct {
+	metrics   []models.Metrics
+	pollCount int64
+}
+
+func buildBatch(gauges map[string]float64, pollCount int64) []models.Metrics {
+	batch := make([]models.Metrics, 0, len(gauges)+1)
+	for name, value := range gauges {
+		batch = append(batch, models.Metrics{ID: name, MType: models.Gauge, Value: &value})
+	}
+	batch = append(batch, models.Metrics{ID: "PollCount", MType: models.Counter, Delta: &pollCount})
+	return batch
 }
 
 func runWorkers(ctx context.Context, n int, jobs <-chan report, handle func(context.Context, report)) {
@@ -125,9 +140,9 @@ func sendBatch(ctx context.Context, client *resty.Client, url, key string, batch
 		return fmt.Errorf("marshal metrics batch: %w", err)
 	}
 
-	var signature string
+	var sign string
 	if key != "" {
-		signature = hash.Sum(key, jsonBody)
+		sign = signature.Sum(key, jsonBody)
 	}
 
 	compressed, err := compress.Compress(jsonBody)
@@ -141,8 +156,8 @@ func sendBatch(ctx context.Context, client *resty.Client, url, key string, batch
 			SetBody(compressed).
 			SetHeader("Content-Type", "application/json").
 			SetHeader("Content-Encoding", "gzip")
-		if signature != "" {
-			req.SetHeader(hash.Header, signature)
+		if sign != "" {
+			req.SetHeader(signature.Header, sign)
 		}
 
 		resp, err := req.Post(url)

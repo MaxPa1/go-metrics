@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/MaxPa1/go-metrics/internal/config"
-	"github.com/MaxPa1/go-metrics/internal/hash"
-	models "github.com/MaxPa1/go-metrics/internal/model"
+	"github.com/MaxPa1/go-metrics/internal/model"
+	"github.com/MaxPa1/go-metrics/internal/signature"
 	"github.com/go-resty/resty/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -115,33 +115,50 @@ func TestMetricAgent_Send_RestoresPollCountOnError(t *testing.T) {
 	}
 	m.store.addPollCount(5)
 
-	m.send(context.Background(), m.store.snapshot())
+	_, pollCount := m.store.read()
+	m.store.addPollCount(-pollCount)
+	m.send(context.Background(), report{metrics: buildBatch(nil, pollCount), pollCount: pollCount})
 
-	assert.Equal(t, int64(5), m.store.snapshot().pollCount, "unsent PollCount must be returned to the store")
+	_, pollCount = m.store.read()
+	assert.Equal(t, int64(5), pollCount, "unsent PollCount must be returned to the store")
 }
 
-func TestStore_Snapshot(t *testing.T) {
+func TestStore_Read(t *testing.T) {
 	s := newStore()
 	s.setGauges(map[string]float64{"Alloc": 1, "HeapSys": 2})
 	s.setGauges(map[string]float64{"TotalMemory": 3, "Alloc": 4})
 	s.addPollCount(1)
 	s.addPollCount(2)
 
-	r := s.snapshot()
+	gauges, pollCount := s.read()
 
-	assert.Equal(t, int64(3), r.pollCount)
+	assert.Equal(t, int64(3), pollCount)
+	require.Len(t, gauges, 3)
+	assert.InDelta(t, 4, gauges["Alloc"], 0.0001, "later write must win")
+	assert.InDelta(t, 2, gauges["HeapSys"], 0.0001, "gauges from other collectors must be kept")
+	assert.InDelta(t, 3, gauges["TotalMemory"], 0.0001)
+
+	_, pollCount = s.read()
+	assert.Equal(t, int64(3), pollCount, "read must not reset pollCount as a side effect")
+
+	gauges["Injected"] = 99
+	freshGauges, _ := s.read()
+	assert.NotContains(t, freshGauges, "Injected", "read must return a copy, not the internal map")
+}
+
+func TestBuildBatch(t *testing.T) {
+	batch := buildBatch(map[string]float64{"Alloc": 4, "HeapSys": 2}, 3)
+
 	byID := make(map[string]models.Metrics)
-	for _, metric := range r.metrics {
+	for _, metric := range batch {
 		byID[metric.ID] = metric
 	}
-	require.Len(t, byID, 4)
-	assert.InDelta(t, 4, *byID["Alloc"].Value, 0.0001, "later write must win")
-	assert.InDelta(t, 2, *byID["HeapSys"].Value, 0.0001, "gauges from other collectors must be kept")
-	assert.InDelta(t, 3, *byID["TotalMemory"].Value, 0.0001)
+	require.Len(t, byID, 3)
+	assert.Equal(t, models.Gauge, byID["Alloc"].MType)
+	assert.InDelta(t, 4, *byID["Alloc"].Value, 0.0001)
+	assert.InDelta(t, 2, *byID["HeapSys"].Value, 0.0001)
 	assert.Equal(t, models.Counter, byID["PollCount"].MType)
 	assert.Equal(t, int64(3), *byID["PollCount"].Delta)
-
-	assert.Equal(t, int64(0), s.snapshot().pollCount, "snapshot must reset PollCount")
 }
 
 func TestRunWorkers_LimitsConcurrency(t *testing.T) {
@@ -259,8 +276,8 @@ func TestSendBatch_Signature(t *testing.T) {
 	)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		headerPresent = len(r.Header.Values(hash.Header)) > 0
-		gotHeader = r.Header.Get(hash.Header)
+		headerPresent = len(r.Header.Values(signature.Header)) > 0
+		gotHeader = r.Header.Get(signature.Header)
 		var err error
 		gotBody, err = readBody(r)
 		require.NoError(t, err)
@@ -276,7 +293,7 @@ func TestSendBatch_Signature(t *testing.T) {
 		require.NoError(t, sendBatch(context.Background(), restyClient, server.URL, "secret", batch))
 
 		assert.True(t, headerPresent)
-		assert.True(t, hash.Valid("secret", gotBody, gotHeader), "header must be HMAC of the uncompressed JSON body")
+		assert.True(t, signature.Valid("secret", gotBody, gotHeader), "header must be HMAC of the uncompressed JSON body")
 	})
 
 	t.Run("without key", func(t *testing.T) {
