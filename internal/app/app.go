@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -16,6 +17,10 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
+
+type storageCloser interface {
+	Close(ctx context.Context) error
+}
 
 type App struct {
 	cfg     config.ServConfig
@@ -84,11 +89,22 @@ func (app *App) CheckDB(ctx context.Context) error {
 	})
 }
 
-func (app *App) Close() error {
-	if app.db != nil {
-		return app.db.Close()
+func (app *App) Close(ctx context.Context) error {
+	var errs []error
+
+	if closer, ok := app.storage.(storageCloser); ok {
+		if err := closer.Close(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("close storage: %w", err))
+		}
 	}
-	return nil
+
+	if app.db != nil {
+		if err := app.db.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close db: %w", err))
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 func (app *App) Storage() service.MetricsStorage {

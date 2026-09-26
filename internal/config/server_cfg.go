@@ -15,6 +15,7 @@ type ServConfig struct {
 	FileStoragePath string        `env:"FILE_STORAGE_PATH"`
 	Restore         bool          `env:"RESTORE"`
 	DatabaseDSN     string        `env:"DATABASE_DSN"`
+	Key             string        `env:"KEY"`
 }
 
 func LoadServConfig() (*ServConfig, error) {
@@ -27,6 +28,7 @@ func LoadServConfig() (*ServConfig, error) {
 	flag.StringVar(&cfg.FileStoragePath, "f", "storage.json", "file storage path")
 	flag.BoolVar(&cfg.Restore, "r", false, "restore")
 	flag.StringVar(&cfg.DatabaseDSN, "d", "", "database DSN")
+	flag.StringVar(&cfg.Key, "k", "", "signing key")
 	flag.Parse()
 
 	cfg.StoreInterval = time.Duration(storeInterval) * time.Second

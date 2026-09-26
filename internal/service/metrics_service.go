@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	models "github.com/MaxPa1/go-metrics/internal/model"
+	"github.com/MaxPa1/go-metrics/internal/model"
 )
 
 var ErrMetricNotFound = errors.New("metric not found")

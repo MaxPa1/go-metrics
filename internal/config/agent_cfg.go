@@ -14,6 +14,8 @@ type AgentConfig struct {
 	Address        string        `env:"ADDRESS"`
 	PollInterval   time.Duration `env:"POLL_INTERVAL"`
 	ReportInterval time.Duration `env:"REPORT_INTERVAL"`
+	Key            string        `env:"KEY"`
+	RateLimit      int           `env:"RATE_LIMIT"`
 }
 
 func LoadAgentConfig() (*AgentConfig, error) {
@@ -23,6 +25,8 @@ func LoadAgentConfig() (*AgentConfig, error) {
 	flag.StringVar(&cfg.Address, "a", "localhost:8080", "server address")
 	flag.IntVar(&pollSeconds, "p", 2, "poll interval in seconds")
 	flag.IntVar(&reportSeconds, "r", 10, "report interval in seconds")
+	flag.StringVar(&cfg.Key, "k", "", "signing key")
+	flag.IntVar(&cfg.RateLimit, "l", 1, "max number of concurrent outgoing requests")
 	flag.Parse()
 
 	cfg.PollInterval = time.Duration(pollSeconds) * time.Second
@@ -31,6 +35,11 @@ func LoadAgentConfig() (*AgentConfig, error) {
 	if err := env.ParseWithOptions(cfg, options); err != nil {
 		return nil, fmt.Errorf("env parse error: %w", err)
 	}
+
+	if cfg.RateLimit <= 0 {
+		return nil, fmt.Errorf("rate limit must be positive, got %d", cfg.RateLimit)
+	}
+
 	return cfg, nil
 }
 

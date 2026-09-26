@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
-	models "github.com/MaxPa1/go-metrics/internal/model"
+	"github.com/MaxPa1/go-metrics/internal/model"
 )
 
 type FileStorage struct {
