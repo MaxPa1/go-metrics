@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	models "github.com/MaxPa1/go-metrics/internal/model"
+	"github.com/MaxPa1/go-metrics/internal/model"
 	"github.com/MaxPa1/go-metrics/internal/retry"
 )
 
@@ -33,6 +33,18 @@ const (
 
 	findAll = `
 		SELECT id, type, delta, value FROM metrics
+	`
+
+	updateGaugeBatch = `
+		INSERT INTO metrics (id, type, value)
+		SELECT unnest($1::text[]), 'gauge', unnest($2::double precision[])
+		ON CONFLICT (id, type) DO UPDATE SET value = EXCLUDED.value
+	`
+
+	updateCounterBatch = `
+		INSERT INTO metrics (id, type, delta)
+		SELECT unnest($1::text[]), 'counter', unnest($2::bigint[])
+		ON CONFLICT (id, type) DO UPDATE SET delta = metrics.delta + EXCLUDED.delta
 	`
 )
 
@@ -107,28 +119,23 @@ func (d *DBStorage) UpdateBatch(ctx context.Context, metrics []models.Metrics) e
 }
 
 func (d *DBStorage) updateBatchOnce(ctx context.Context, metrics []models.Metrics) error {
+	gauges, counters := splitBatch(metrics)
+
 	tx, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
-	for _, metric := range metrics {
-		switch metric.MType {
-		case models.Gauge:
-			if metric.Value == nil {
-				continue
-			}
-			if _, err := tx.ExecContext(ctx, updateGauge, metric.ID, *metric.Value); err != nil {
-				return fmt.Errorf("update gauge %q: %w", metric.ID, err)
-			}
-		case models.Counter:
-			if metric.Delta == nil {
-				continue
-			}
-			if _, err := tx.ExecContext(ctx, updateCounter, metric.ID, *metric.Delta); err != nil {
-				return fmt.Errorf("update counter %q: %w", metric.ID, err)
-			}
+	if len(gauges.ids) > 0 {
+		if _, err := tx.ExecContext(ctx, updateGaugeBatch, gauges.ids, gauges.values); err != nil {
+			return fmt.Errorf("update gauges batch: %w", err)
+		}
+	}
+
+	if len(counters.ids) > 0 {
+		if _, err := tx.ExecContext(ctx, updateCounterBatch, counters.ids, counters.deltas); err != nil {
+			return fmt.Errorf("update counters batch: %w", err)
 		}
 	}
 
@@ -136,6 +143,49 @@ func (d *DBStorage) updateBatchOnce(ctx context.Context, metrics []models.Metric
 		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
+}
+
+type gaugeBatch struct {
+	ids    []string
+	values []float64
+}
+
+type counterBatch struct {
+	ids    []string
+	deltas []int64
+}
+
+func splitBatch(metrics []models.Metrics) (gauges gaugeBatch, counters counterBatch) {
+	gaugeIdx := make(map[string]int, len(metrics))
+	counterIdx := make(map[string]int, len(metrics))
+
+	for _, metric := range metrics {
+		switch metric.MType {
+		case models.Gauge:
+			if metric.Value == nil {
+				continue
+			}
+			if idx, ok := gaugeIdx[metric.ID]; ok {
+				gauges.values[idx] = *metric.Value
+				continue
+			}
+			gaugeIdx[metric.ID] = len(gauges.ids)
+			gauges.ids = append(gauges.ids, metric.ID)
+			gauges.values = append(gauges.values, *metric.Value)
+		case models.Counter:
+			if metric.Delta == nil {
+				continue
+			}
+			if idx, ok := counterIdx[metric.ID]; ok {
+				counters.deltas[idx] += *metric.Delta
+				continue
+			}
+			counterIdx[metric.ID] = len(counters.ids)
+			counters.ids = append(counters.ids, metric.ID)
+			counters.deltas = append(counters.deltas, *metric.Delta)
+		}
+	}
+	return gauges, counters
 }
 
 func (d *DBStorage) FindAll(ctx context.Context) (map[string]int64, map[string]float64, error) {

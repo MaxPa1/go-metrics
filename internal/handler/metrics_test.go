@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/MaxPa1/go-metrics/internal/mocks"
-	models "github.com/MaxPa1/go-metrics/internal/model"
+	"github.com/MaxPa1/go-metrics/internal/model"
 	"github.com/MaxPa1/go-metrics/internal/service"
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
