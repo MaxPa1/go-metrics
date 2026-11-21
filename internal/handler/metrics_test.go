@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MaxPa1/go-metrics/internal/audit"
 	"github.com/MaxPa1/go-metrics/internal/mocks"
 	"github.com/MaxPa1/go-metrics/internal/model"
 	"github.com/MaxPa1/go-metrics/internal/service"
@@ -18,6 +19,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
+
+type fakeAuditor struct {
+	events []audit.Event
+}
+
+func (f *fakeAuditor) Notify(e audit.Event) { f.events = append(f.events, e) }
 
 func TestMetricsHandler(t *testing.T) {
 	tests := []struct {
@@ -105,7 +112,7 @@ func TestMetricsHandler(t *testing.T) {
 
 			r := chi.NewRouter()
 			r.Post("/update/{metricsType}/{metricsName}/{metricsValue}",
-				MetricsHandler(mockService))
+				MetricsHandler(mockService, &fakeAuditor{}))
 
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			w := httptest.NewRecorder()
@@ -373,7 +380,7 @@ func TestMetricsV2Handler(t *testing.T) {
 			}
 
 			r := chi.NewRouter()
-			r.Post("/update/", MetricsV2Handler(mockService))
+			r.Post("/update/", MetricsV2Handler(mockService, &fakeAuditor{}))
 
 			req := httptest.NewRequest(tt.method, "/update/", bytes.NewBufferString(tt.body))
 			req.Header.Set("Content-Type", "application/json")
@@ -461,7 +468,7 @@ func TestMetricsListHandler(t *testing.T) {
 			tt.mockSetup(mockService)
 
 			r := chi.NewRouter()
-			r.Post("/updates/", MetricsListHandler(mockService))
+			r.Post("/updates/", MetricsListHandler(mockService, &fakeAuditor{}))
 
 			req := httptest.NewRequest(tt.method, "/updates/", bytes.NewBufferString(tt.body))
 			req.Header.Set("Content-Type", "application/json")
@@ -596,6 +603,97 @@ func TestGetMetricsV2Handler(t *testing.T) {
 				assert.Equal(t, tt.expectedDelta, *got.Delta)
 				assert.Nil(t, got.Value)
 			}
+		})
+	}
+}
+
+func TestUpdateHandlers_Audit(t *testing.T) {
+	const remoteAddr = "192.168.0.42:54321"
+
+	tests := []struct {
+		name          string
+		route         string
+		handler       func(MetricsService, Auditor) http.HandlerFunc
+		path          string
+		body          string
+		mockSetup     func(m *mocks.MetricsService)
+		expectedNames []string
+	}{
+		{
+			name:    "v1 success",
+			route:   "/update/{metricsType}/{metricsName}/{metricsValue}",
+			handler: MetricsHandler,
+			path:    "/update/gauge/Alloc/1.5",
+			mockSetup: func(m *mocks.MetricsService) {
+				m.EXPECT().RecordGauge(mock.Anything, "Alloc", 1.5).Return(nil)
+			},
+			expectedNames: []string{"Alloc"},
+		},
+		{
+			name:    "v2 success",
+			route:   "/update/",
+			handler: MetricsV2Handler,
+			path:    "/update/",
+			body:    `{"id":"PollCount","type":"counter","delta":1}`,
+			mockSetup: func(m *mocks.MetricsService) {
+				m.EXPECT().RecordCounter(mock.Anything, "PollCount", int64(1)).Return(nil)
+			},
+			expectedNames: []string{"PollCount"},
+		},
+		{
+			name:    "batch success",
+			route:   "/updates/",
+			handler: MetricsListHandler,
+			path:    "/updates/",
+			body:    `[{"id":"Alloc","type":"gauge","value":1},{"id":"Frees","type":"gauge","value":2}]`,
+			mockSetup: func(m *mocks.MetricsService) {
+				m.EXPECT().RecordBatch(mock.Anything, mock.Anything).Return(nil)
+			},
+			expectedNames: []string{"Alloc", "Frees"},
+		},
+		{
+			name:    "service error is not audited",
+			route:   "/updates/",
+			handler: MetricsListHandler,
+			path:    "/updates/",
+			body:    `[{"id":"Alloc","type":"gauge","value":1}]`,
+			mockSetup: func(m *mocks.MetricsService) {
+				m.EXPECT().RecordBatch(mock.Anything, mock.Anything).Return(assert.AnError)
+			},
+		},
+		{
+			name:      "invalid request is not audited",
+			route:     "/update/",
+			handler:   MetricsV2Handler,
+			path:      "/update/",
+			body:      `{"id":"Alloc","type":"gauge"}`,
+			mockSetup: func(m *mocks.MetricsService) {},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockService := mocks.NewMetricsService(t)
+			tt.mockSetup(mockService)
+			auditor := &fakeAuditor{}
+
+			r := chi.NewRouter()
+			r.Post(tt.route, tt.handler(mockService, auditor))
+
+			req := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body))
+			req.RemoteAddr = remoteAddr
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if tt.expectedNames == nil {
+				assert.Empty(t, auditor.events)
+				return
+			}
+			require.Len(t, auditor.events, 1)
+			e := auditor.events[0]
+			assert.Equal(t, tt.expectedNames, e.Metrics)
+			assert.Equal(t, "192.168.0.42", e.IPAddress)
+			assert.NotZero(t, e.TS)
 		})
 	}
 }
