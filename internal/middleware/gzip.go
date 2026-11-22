@@ -23,6 +23,8 @@ func GzipMiddleware(next http.Handler) http.Handler {
 				return
 			}
 			r.Body = cr
+
+			defer cr.Close()
 		}
 
 		next.ServeHTTP(ow, r)

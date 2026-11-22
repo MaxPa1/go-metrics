@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/MaxPa1/go-metrics/internal/model"
 )
@@ -87,21 +86,14 @@ func (s *MetricsServiceImpl) GetAll(ctx context.Context) ([]string, error) {
 
 	list := make([]string, 0, len(counters)+len(gauges))
 
-	var sb strings.Builder
-
+	var buf [128]byte
 	for k, v := range counters {
-		sb.Reset()
-		sb.WriteString(k)
-		sb.WriteString(": ")
-		sb.Write(strconv.AppendInt(nil, v, 10))
-		list = append(list, sb.String())
+		b := append(append(buf[:0], k...), ": "...)
+		list = append(list, string(strconv.AppendInt(b, v, 10)))
 	}
 	for k, v := range gauges {
-		sb.Reset()
-		sb.WriteString(k)
-		sb.WriteString(": ")
-		sb.Write(strconv.AppendFloat(nil, v, 'f', -1, 64))
-		list = append(list, sb.String())
+		b := append(append(buf[:0], k...), ": "...)
+		list = append(list, string(strconv.AppendFloat(b, v, 'f', -1, 64)))
 	}
 	return list, nil
 }
