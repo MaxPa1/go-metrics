@@ -6,9 +6,11 @@ import (
 	"errors"
 	"html/template"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 
+	"github.com/MaxPa1/go-metrics/internal/audit"
 	"github.com/MaxPa1/go-metrics/internal/model"
 	"github.com/MaxPa1/go-metrics/internal/service"
 	"go.uber.org/zap"
@@ -37,7 +39,11 @@ type MetricsService interface {
 	RecordBatch(ctx context.Context, metrics []models.Metrics) error
 }
 
-func MetricsHandler(metricService MetricsService) http.HandlerFunc {
+type Auditor interface {
+	Notify(e audit.Event)
+}
+
+func MetricsHandler(metricService MetricsService, auditor Auditor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		metricsType := chi.URLParam(r, "metricsType")
 		metricsName := chi.URLParam(r, "metricsName")
@@ -72,6 +78,7 @@ func MetricsHandler(metricService MetricsService) http.HandlerFunc {
 			return
 		}
 
+		auditor.Notify(audit.NewEvent([]string{metricsName}, clientIP(r)))
 		w.WriteHeader(http.StatusOK)
 	}
 }
@@ -141,7 +148,7 @@ func GetAllMetricsHandler(metricService MetricsService) http.HandlerFunc {
 	}
 }
 
-func MetricsV2Handler(metricService MetricsService) http.HandlerFunc {
+func MetricsV2Handler(metricService MetricsService, auditor Auditor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var request models.Metrics
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
@@ -171,6 +178,7 @@ func MetricsV2Handler(metricService MetricsService) http.HandlerFunc {
 			return
 		}
 
+		auditor.Notify(audit.NewEvent([]string{request.ID}, clientIP(r)))
 		w.WriteHeader(http.StatusOK)
 	}
 }
@@ -220,7 +228,7 @@ func GetMetricsV2Handler(metricService MetricsService, log *zap.SugaredLogger) h
 	}
 }
 
-func MetricsListHandler(metricService MetricsService) http.HandlerFunc {
+func MetricsListHandler(metricService MetricsService, auditor Auditor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var request []models.Metrics
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
@@ -256,6 +264,11 @@ func MetricsListHandler(metricService MetricsService) http.HandlerFunc {
 			return
 		}
 
+		names := make([]string, 0, len(request))
+		for _, m := range request {
+			names = append(names, m.ID)
+		}
+		auditor.Notify(audit.NewEvent(names, clientIP(r)))
 		w.WriteHeader(http.StatusOK)
 	}
 }
@@ -266,4 +279,12 @@ func writeError(w http.ResponseWriter, err error) {
 		return
 	}
 	w.WriteHeader(http.StatusInternalServerError)
+}
+
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }

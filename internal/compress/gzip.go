@@ -7,20 +7,24 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
+)
+
+var (
+	gzipWriterPool = sync.Pool{
+		New: func() any { return gzip.NewWriter(io.Discard) },
+	}
+	gzipReaderPool sync.Pool
 )
 
 type compressWriter struct {
 	w           http.ResponseWriter
 	zw          *gzip.Writer
 	wroteHeader bool
-	disabled    bool
 }
 
 func NewCompressWriter(w http.ResponseWriter) *compressWriter {
-	return &compressWriter{
-		w:  w,
-		zw: gzip.NewWriter(w),
-	}
+	return &compressWriter{w: w}
 }
 
 func (c *compressWriter) Header() http.Header {
@@ -31,7 +35,7 @@ func (c *compressWriter) Write(p []byte) (int, error) {
 	if !c.wroteHeader {
 		c.WriteHeader(http.StatusOK)
 	}
-	if c.disabled {
+	if c.zw == nil {
 		return c.w.Write(p)
 	}
 	return c.zw.Write(p)
@@ -43,24 +47,28 @@ func (c *compressWriter) WriteHeader(statusCode int) {
 	}
 	c.wroteHeader = true
 
-	contentType := c.w.Header().Get("Content-Type")
-	if !isCompressibleContentType(contentType) {
-		c.disabled = true
+	if !isCompressibleContentType(c.w.Header().Get("Content-Type")) ||
+		statusCode == http.StatusNoContent || statusCode == http.StatusNotModified {
 		c.w.WriteHeader(statusCode)
 		return
 	}
-	if statusCode == http.StatusNoContent || statusCode == http.StatusNotModified {
-		c.disabled = true
-		c.w.WriteHeader(statusCode)
-		return
-	}
+
+	c.zw = gzipWriterPool.Get().(*gzip.Writer)
+	c.zw.Reset(c.w)
 	c.w.Header().Set("Content-Encoding", "gzip")
 	c.w.Header().Del("Content-Length")
 	c.w.WriteHeader(statusCode)
 }
 
 func (c *compressWriter) Close() error {
-	return c.zw.Close()
+	if c.zw == nil {
+		return nil
+	}
+	err := c.zw.Close()
+	c.zw.Reset(io.Discard)
+	gzipWriterPool.Put(c.zw)
+	c.zw = nil
+	return err
 }
 
 type compressReader struct {
@@ -69,30 +77,42 @@ type compressReader struct {
 }
 
 func NewCompressReader(r io.ReadCloser) (*compressReader, error) {
-	zr, err := gzip.NewReader(r)
-	if err != nil {
+	zr, ok := gzipReaderPool.Get().(*gzip.Reader)
+	if !ok {
+		var err error
+		if zr, err = gzip.NewReader(r); err != nil {
+			return nil, err
+		}
+	} else if err := zr.Reset(r); err != nil {
+		gzipReaderPool.Put(zr)
 		return nil, err
 	}
 
-	return &compressReader{
-		r:  r,
-		zr: zr,
-	}, nil
+	return &compressReader{r: r, zr: zr}, nil
 }
 
-func (c compressReader) Read(p []byte) (n int, err error) {
+func (c *compressReader) Read(p []byte) (int, error) {
+	if c.zr == nil {
+		return 0, io.ErrClosedPipe
+	}
 	return c.zr.Read(p)
 }
 
 func (c *compressReader) Close() error {
+	if c.zr == nil {
+		return nil
+	}
+	zerr := c.zr.Close()
+	gzipReaderPool.Put(c.zr)
+	c.zr = nil
 	if err := c.r.Close(); err != nil {
 		return err
 	}
-	return c.zr.Close()
+	return zerr
 }
 
 func IsGzipEncoding(value string) bool {
-	for _, part := range strings.Split(value, ",") {
+	for part := range strings.SplitSeq(value, ",") {
 		if strings.EqualFold(strings.TrimSpace(part), "gzip") {
 			return true
 		}
@@ -101,47 +121,44 @@ func IsGzipEncoding(value string) bool {
 }
 
 func AcceptsGzip(acceptEncoding string) bool {
-	if !strings.Contains(strings.ToLower(acceptEncoding), "gzip") {
-		return false
-	}
-
-	for _, part := range strings.Split(acceptEncoding, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-
-		fields := strings.Split(part, ";")
-		coding := strings.TrimSpace(fields[0])
+	accepted := false
+	for part := range strings.SplitSeq(acceptEncoding, ",") {
+		coding, params, _ := strings.Cut(strings.TrimSpace(part), ";")
+		coding = strings.TrimSpace(coding)
 		if !strings.EqualFold(coding, "gzip") && !strings.EqualFold(coding, "x-gzip") {
 			continue
 		}
 
-		for _, param := range fields[1:] {
-			param = strings.TrimSpace(param)
-			if strings.HasPrefix(param, "q=") {
-				qVal := strings.TrimPrefix(param, "q=")
-				q, err := strconv.ParseFloat(qVal, 64)
-				if err == nil && q <= 0 {
-					return false
-				}
+		for param := range strings.SplitSeq(params, ";") {
+			qVal, found := strings.CutPrefix(strings.TrimSpace(param), "q=")
+			if !found {
+				continue
+			}
+			if q, err := strconv.ParseFloat(qVal, 64); err == nil && q <= 0 {
+				return false
 			}
 		}
+		accepted = true
 	}
-
-	return true
+	return accepted
 }
 
 func Compress(data []byte) (*bytes.Buffer, error) {
-	var buf bytes.Buffer
-	zw := gzip.NewWriter(&buf)
+	buf := bytes.NewBuffer(make([]byte, 0, len(data)/2+64))
+	zw := gzipWriterPool.Get().(*gzip.Writer)
+	zw.Reset(buf)
+	defer func() {
+		zw.Reset(io.Discard)
+		gzipWriterPool.Put(zw)
+	}()
+
 	if _, err := zw.Write(data); err != nil {
 		return nil, err
 	}
 	if err := zw.Close(); err != nil {
 		return nil, err
 	}
-	return &buf, nil
+	return buf, nil
 }
 
 func isCompressibleContentType(ct string) bool {
