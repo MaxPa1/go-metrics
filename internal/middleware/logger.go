@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// RequestLogger логирует метод, URI, статус, размер и длительность каждого запроса.
 func RequestLogger(log *zap.SugaredLogger) func(http.Handler) http.Handler {
 	log = log.With("component", "http_middleware")
 

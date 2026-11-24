@@ -1,3 +1,4 @@
+// Package handler содержит HTTP-хендлеры сервера метрик.
 package handler
 
 import (
@@ -30,6 +31,7 @@ const tmpl = `
 </body>
 </html>`
 
+// MetricsService описывает бизнес-логику работы с метриками, нужную хендлерам.
 type MetricsService interface {
 	RecordGauge(ctx context.Context, name string, value float64) error
 	GetGauge(ctx context.Context, name string) (float64, error)
@@ -39,10 +41,12 @@ type MetricsService interface {
 	RecordBatch(ctx context.Context, metrics []models.Metrics) error
 }
 
+// Auditor получает события об изменении метрик.
 type Auditor interface {
 	Notify(e audit.Event)
 }
 
+// MetricsHandler обрабатывает POST /update/{metricsType}/{metricsName}/{metricsValue}.
 func MetricsHandler(metricService MetricsService, auditor Auditor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		metricsType := chi.URLParam(r, "metricsType")
@@ -83,6 +87,7 @@ func MetricsHandler(metricService MetricsService, auditor Auditor) http.HandlerF
 	}
 }
 
+// GetMetricsHandler обрабатывает GET /value/{metricsType}/{metricsName} и возвращает значение текстом.
 func GetMetricsHandler(metricService MetricsService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		metricsType := chi.URLParam(r, "metricsType")
@@ -123,6 +128,7 @@ func GetMetricsHandler(metricService MetricsService) http.HandlerFunc {
 	}
 }
 
+// GetAllMetricsHandler обрабатывает GET / и возвращает HTML-список всех метрик.
 func GetAllMetricsHandler(metricService MetricsService) http.HandlerFunc {
 	t, err := template.New("metrics").Parse(tmpl)
 	if err != nil {
@@ -148,6 +154,7 @@ func GetAllMetricsHandler(metricService MetricsService) http.HandlerFunc {
 	}
 }
 
+// MetricsV2Handler обрабатывает POST /update с метрикой в JSON.
 func MetricsV2Handler(metricService MetricsService, auditor Auditor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var request models.Metrics
@@ -183,6 +190,7 @@ func MetricsV2Handler(metricService MetricsService, auditor Auditor) http.Handle
 	}
 }
 
+// GetMetricsV2Handler обрабатывает POST /value: принимает ID и тип метрики в JSON и возвращает метрику со значением.
 func GetMetricsV2Handler(metricService MetricsService, log *zap.SugaredLogger) http.HandlerFunc {
 	log = log.With("component", "GetMetricsV2Handler")
 
@@ -228,6 +236,7 @@ func GetMetricsV2Handler(metricService MetricsService, log *zap.SugaredLogger) h
 	}
 }
 
+// MetricsListHandler обрабатывает POST /updates с массивом метрик в JSON.
 func MetricsListHandler(metricService MetricsService, auditor Auditor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var request []models.Metrics

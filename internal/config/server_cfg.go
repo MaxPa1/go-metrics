@@ -8,6 +8,7 @@ import (
 	"github.com/caarlos0/env/v11"
 )
 
+// ServConfig содержит настройки сервера.
 type ServConfig struct {
 	Address         string        `env:"ADDRESS"`
 	LogLevel        string        `env:"LOG_LEVEL"`
@@ -20,6 +21,7 @@ type ServConfig struct {
 	AuditURL        string        `env:"AUDIT_URL"`
 }
 
+// LoadServConfig читает флаги и переменные окружения; переменные окружения имеют приоритет.
 func LoadServConfig() (*ServConfig, error) {
 	cfg := &ServConfig{}
 	var storeInterval int

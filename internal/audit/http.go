@@ -13,11 +13,13 @@ import (
 
 const defaultHTTPTimeout = 5 * time.Second
 
+// HTTPObserver отправляет события аудита POST-запросом на заданный URL.
 type HTTPObserver struct {
 	url    string
 	client *http.Client
 }
 
+// NewHTTPObserver создаёт наблюдателя; при client == nil используется клиент с таймаутом по умолчанию.
 func NewHTTPObserver(rawURL string, client *http.Client) (*HTTPObserver, error) {
 	u, err := url.ParseRequestURI(rawURL)
 	if err != nil {
@@ -32,6 +34,7 @@ func NewHTTPObserver(rawURL string, client *http.Client) (*HTTPObserver, error) 
 	return &HTTPObserver{url: u.String(), client: client}, nil
 }
 
+// Notify отправляет событие на сервер аудита.
 func (o *HTTPObserver) Notify(ctx context.Context, e Event) error {
 	body, err := json.Marshal(e)
 	if err != nil {

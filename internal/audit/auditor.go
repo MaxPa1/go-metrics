@@ -1,3 +1,4 @@
+// Package audit реализует аудит изменений метрик по паттерну «Наблюдатель».
 package audit
 
 import (
@@ -12,10 +13,12 @@ import (
 
 const queueSize = 1024
 
+// Observer получает события аудита.
 type Observer interface {
 	Notify(ctx context.Context, e Event) error
 }
 
+// Auditor асинхронно рассылает события аудита всем наблюдателям.
 type Auditor struct {
 	log       *zap.SugaredLogger
 	observers []Observer
@@ -27,6 +30,7 @@ type Auditor struct {
 	closeOnce sync.Once
 }
 
+// NewAuditor создаёт аудитор и запускает фоновую рассылку событий.
 func NewAuditor(log *zap.SugaredLogger, observers ...Observer) *Auditor {
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &Auditor{
@@ -41,6 +45,7 @@ func NewAuditor(log *zap.SugaredLogger, observers ...Observer) *Auditor {
 	return a
 }
 
+// Notify ставит событие в очередь на рассылку.
 func (a *Auditor) Notify(e Event) {
 	if len(a.observers) == 0 {
 		return
@@ -63,6 +68,7 @@ func (a *Auditor) run() {
 	}
 }
 
+// Close дожидается рассылки оставшихся событий и останавливает аудитор.
 func (a *Auditor) Close(ctx context.Context) error {
 	var errs []error
 	a.closeOnce.Do(func() {

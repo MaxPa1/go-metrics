@@ -1,3 +1,4 @@
+// Package retry реализует повтор операций при временных ошибках.
 package retry
 
 import (
@@ -11,10 +12,13 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+// Delays задаёт паузы между повторными попытками.
 var Delays = []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
 
+// IsRetriable решает, стоит ли повторять операцию после ошибки.
 type IsRetriable func(error) bool
 
+// Do выполняет fn и повторяет её с паузами из Delays, пока ошибка признаётся временной.
 func Do(ctx context.Context, isRetriable IsRetriable, fn func() error) error {
 	var err error
 	for attempt := 0; ; attempt++ {
@@ -43,6 +47,7 @@ var pgConnectionErrorCodes = map[string]struct{}{
 	pgerrcode.ProtocolViolation:                             {},
 }
 
+// IsRetriablePgError сообщает, является ли ошибка временной ошибкой соединения с PostgreSQL.
 func IsRetriablePgError(err error) bool {
 	if err == nil {
 		return false
@@ -57,6 +62,7 @@ func IsRetriablePgError(err error) bool {
 	return IsRetriableNetError(err)
 }
 
+// IsRetriableNetError сообщает, является ли ошибка временной сетевой ошибкой.
 func IsRetriableNetError(err error) bool {
 	if err == nil {
 		return false

@@ -1,3 +1,4 @@
+// Package app собирает зависимости сервера: хранилище, БД и аудит.
 package app
 
 import (
@@ -24,6 +25,7 @@ type storageCloser interface {
 	Close(ctx context.Context) error
 }
 
+// App хранит общие ресурсы сервера и управляет их жизненным циклом.
 type App struct {
 	cfg     config.ServConfig
 	db      *sql.DB
@@ -31,6 +33,7 @@ type App struct {
 	auditor *audit.Auditor
 }
 
+// New выбирает хранилище по конфигурации (БД, файл или память) и инициализирует аудит.
 func New(ctx context.Context, cfg config.ServConfig, log *zap.SugaredLogger) (_ *App, err error) {
 	auditor, err := newAuditor(cfg, log)
 	if err != nil {
@@ -118,12 +121,14 @@ func runMigrations(db *sql.DB) error {
 	return nil
 }
 
+// CheckDB проверяет доступность базы данных.
 func (app *App) CheckDB(ctx context.Context) error {
 	return retry.Do(ctx, retry.IsRetriablePgError, func() error {
 		return app.db.PingContext(ctx)
 	})
 }
 
+// Close освобождает ресурсы приложения: аудит, хранилище и соединение с БД.
 func (app *App) Close(ctx context.Context) error {
 	var errs []error
 
@@ -146,10 +151,12 @@ func (app *App) Close(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
+// Storage возвращает выбранное хранилище метрик.
 func (app *App) Storage() service.MetricsStorage {
 	return app.storage
 }
 
+// Auditor возвращает аудитор запросов.
 func (app *App) Auditor() *audit.Auditor {
 	return app.auditor
 }

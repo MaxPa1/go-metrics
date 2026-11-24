@@ -14,6 +14,7 @@ import (
 	"github.com/MaxPa1/go-metrics/internal/model"
 )
 
+// FileStorage хранит метрики в памяти и сохраняет их в JSON-файл.
 type FileStorage struct {
 	*MemStorage
 	path     string
@@ -22,6 +23,7 @@ type FileStorage struct {
 	cancel   context.CancelFunc
 }
 
+// NewFileStorage создаёт файловое хранилище; при interval == 0 данные сохраняются после каждой записи.
 func NewFileStorage(ctx context.Context, path string, interval time.Duration, restore bool) (*FileStorage, error) {
 	bgCtx, cancel := context.WithCancel(context.Background())
 	fs := &FileStorage{
@@ -58,6 +60,7 @@ func (fs *FileStorage) runTicker(ctx context.Context) {
 	}
 }
 
+// Close останавливает фоновое сохранение и сохраняет данные в файл.
 func (fs *FileStorage) Close(ctx context.Context) error {
 	fs.cancel()
 	if err := saveToFile(ctx, fs.path, fs.MemStorage); err != nil {
@@ -66,6 +69,7 @@ func (fs *FileStorage) Close(ctx context.Context) error {
 	return nil
 }
 
+// UpdateGauge сохраняет значение gauge.
 func (fs *FileStorage) UpdateGauge(ctx context.Context, name string, value float64) error {
 	err := fs.MemStorage.UpdateGauge(ctx, name, value)
 	if err != nil {
@@ -77,6 +81,7 @@ func (fs *FileStorage) UpdateGauge(ctx context.Context, name string, value float
 	return nil
 }
 
+// UpdateCounter прибавляет delta к counter.
 func (fs *FileStorage) UpdateCounter(ctx context.Context, name string, delta int64) error {
 	err := fs.MemStorage.UpdateCounter(ctx, name, delta)
 	if err != nil {
@@ -88,6 +93,7 @@ func (fs *FileStorage) UpdateCounter(ctx context.Context, name string, delta int
 	return nil
 }
 
+// UpdateBatch сохраняет набор метрик.
 func (fs *FileStorage) UpdateBatch(ctx context.Context, metrics []models.Metrics) error {
 	err := fs.MemStorage.UpdateBatch(ctx, metrics)
 	if err != nil {
@@ -99,6 +105,7 @@ func (fs *FileStorage) UpdateBatch(ctx context.Context, metrics []models.Metrics
 	return nil
 }
 
+// Save записывает текущее состояние в файл.
 func (fs *FileStorage) Save(ctx context.Context) {
 	if err := saveToFile(ctx, fs.path, fs.MemStorage); err != nil {
 		log.Printf("save metrics: %v", err)

@@ -1,3 +1,4 @@
+// Package config загружает конфигурацию агента и сервера из флагов и переменных окружения.
 package config
 
 import (
@@ -10,6 +11,7 @@ import (
 	"github.com/caarlos0/env/v11"
 )
 
+// AgentConfig содержит настройки агента.
 type AgentConfig struct {
 	Address        string        `env:"ADDRESS"`
 	PollInterval   time.Duration `env:"POLL_INTERVAL"`
@@ -18,6 +20,7 @@ type AgentConfig struct {
 	RateLimit      int           `env:"RATE_LIMIT"`
 }
 
+// LoadAgentConfig читает флаги и переменные окружения; переменные окружения имеют приоритет.
 func LoadAgentConfig() (*AgentConfig, error) {
 	cfg := &AgentConfig{}
 	var pollSeconds, reportSeconds int

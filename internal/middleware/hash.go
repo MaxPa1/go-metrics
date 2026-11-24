@@ -16,6 +16,7 @@ var (
 	hashWriterPool    = sync.Pool{New: func() any { return new(hashResponseWriter) }}
 )
 
+// HashMiddleware проверяет подпись запроса и подписывает ответ HMAC-SHA256; при пустом ключе ничего не делает.
 func HashMiddleware(key string) func(http.Handler) http.Handler {
 	if key == "" {
 		return func(next http.Handler) http.Handler { return next }

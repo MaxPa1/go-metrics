@@ -1,3 +1,4 @@
+// Package compress содержит вспомогательные функции для работы с gzip.
 package compress
 
 import (
@@ -23,6 +24,7 @@ type compressWriter struct {
 	wroteHeader bool
 }
 
+// NewCompressWriter оборачивает http.ResponseWriter и сжимает ответ gzip, если тип содержимого это позволяет.
 func NewCompressWriter(w http.ResponseWriter) *compressWriter {
 	return &compressWriter{w: w}
 }
@@ -76,6 +78,7 @@ type compressReader struct {
 	zr *gzip.Reader
 }
 
+// NewCompressReader оборачивает тело запроса и распаковывает его из gzip.
 func NewCompressReader(r io.ReadCloser) (*compressReader, error) {
 	zr, ok := gzipReaderPool.Get().(*gzip.Reader)
 	if !ok {
@@ -111,6 +114,7 @@ func (c *compressReader) Close() error {
 	return zerr
 }
 
+// IsGzipEncoding сообщает, указан ли gzip в заголовке Content-Encoding.
 func IsGzipEncoding(value string) bool {
 	for part := range strings.SplitSeq(value, ",") {
 		if strings.EqualFold(strings.TrimSpace(part), "gzip") {
@@ -120,6 +124,7 @@ func IsGzipEncoding(value string) bool {
 	return false
 }
 
+// AcceptsGzip сообщает, принимает ли клиент gzip по заголовку Accept-Encoding.
 func AcceptsGzip(acceptEncoding string) bool {
 	accepted := false
 	for part := range strings.SplitSeq(acceptEncoding, ",") {
@@ -143,6 +148,7 @@ func AcceptsGzip(acceptEncoding string) bool {
 	return accepted
 }
 
+// Compress сжимает данные gzip.
 func Compress(data []byte) (*bytes.Buffer, error) {
 	buf := bytes.NewBuffer(make([]byte, 0, len(data)/2+64))
 	zw := gzipWriterPool.Get().(*gzip.Writer)
