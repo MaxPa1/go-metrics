@@ -1,3 +1,4 @@
+// Package agent реализует сбор метрик и их пакетную отправку на сервер.
 package agent
 
 import (
@@ -17,6 +18,7 @@ import (
 	"github.com/go-resty/resty/v2"
 )
 
+// MetricAgent периодически собирает метрики и отправляет их на сервер.
 type MetricAgent struct {
 	client         *resty.Client
 	updatesURL     string
@@ -27,6 +29,7 @@ type MetricAgent struct {
 	store          *store
 }
 
+// NewMetricAgent создаёт агента по конфигурации и HTTP-клиенту.
 func NewMetricAgent(cfg *config.AgentConfig, client *resty.Client) *MetricAgent {
 	return &MetricAgent{
 		client:         client,
@@ -39,6 +42,7 @@ func NewMetricAgent(cfg *config.AgentConfig, client *resty.Client) *MetricAgent 
 	}
 }
 
+// Run запускает сбор и отправку метрик.
 func (m *MetricAgent) Run(ctx context.Context) {
 	jobs := make(chan report, 1)
 

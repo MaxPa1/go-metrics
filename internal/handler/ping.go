@@ -6,6 +6,7 @@ import (
 	"github.com/MaxPa1/go-metrics/internal/app"
 )
 
+// PingHandler обрабатывает GET /ping и проверяет соединение с базой данных.
 func PingHandler(app *app.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		err := app.CheckDB(r.Context())

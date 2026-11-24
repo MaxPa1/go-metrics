@@ -48,16 +48,19 @@ const (
 	`
 )
 
+// DBStorage хранит метрики в PostgreSQL.
 type DBStorage struct {
 	db *sql.DB
 }
 
+// NewDBStorage создаёт хранилище поверх открытого соединения с БД.
 func NewDBStorage(db *sql.DB) *DBStorage {
 	return &DBStorage{
 		db: db,
 	}
 }
 
+// UpdateGauge сохраняет значение gauge.
 func (d *DBStorage) UpdateGauge(ctx context.Context, name string, value float64) error {
 	err := retry.Do(ctx, retry.IsRetriablePgError, func() error {
 		_, err := d.db.ExecContext(ctx, updateGauge, name, value)
@@ -69,6 +72,7 @@ func (d *DBStorage) UpdateGauge(ctx context.Context, name string, value float64)
 	return nil
 }
 
+// UpdateCounter прибавляет value к counter.
 func (d *DBStorage) UpdateCounter(ctx context.Context, name string, value int64) error {
 	err := retry.Do(ctx, retry.IsRetriablePgError, func() error {
 		_, err := d.db.ExecContext(ctx, updateCounter, name, value)
@@ -80,6 +84,7 @@ func (d *DBStorage) UpdateCounter(ctx context.Context, name string, value int64)
 	return nil
 }
 
+// FindGauge возвращает значение gauge и признак его наличия.
 func (d *DBStorage) FindGauge(ctx context.Context, name string) (float64, bool, error) {
 	var value float64
 	err := retry.Do(ctx, retry.IsRetriablePgError, func() error {
@@ -94,6 +99,7 @@ func (d *DBStorage) FindGauge(ctx context.Context, name string) (float64, bool, 
 	return value, true, nil
 }
 
+// FindCounter возвращает значение counter и признак его наличия.
 func (d *DBStorage) FindCounter(ctx context.Context, name string) (int64, bool, error) {
 	var delta int64
 	err := retry.Do(ctx, retry.IsRetriablePgError, func() error {
@@ -108,6 +114,7 @@ func (d *DBStorage) FindCounter(ctx context.Context, name string) (int64, bool, 
 	return delta, true, nil
 }
 
+// UpdateBatch сохраняет набор метрик в одной транзакции.
 func (d *DBStorage) UpdateBatch(ctx context.Context, metrics []models.Metrics) error {
 	if len(metrics) == 0 {
 		return nil
@@ -188,6 +195,7 @@ func splitBatch(metrics []models.Metrics) (gauges gaugeBatch, counters counterBa
 	return gauges, counters
 }
 
+// FindAll возвращает все counter и gauge.
 func (d *DBStorage) FindAll(ctx context.Context) (map[string]int64, map[string]float64, error) {
 	var counters map[string]int64
 	var gauges map[string]float64

@@ -8,6 +8,7 @@ import (
 	"github.com/caarlos0/env/v11"
 )
 
+// ServConfig содержит настройки сервера.
 type ServConfig struct {
 	Address         string        `env:"ADDRESS"`
 	LogLevel        string        `env:"LOG_LEVEL"`
@@ -16,8 +17,11 @@ type ServConfig struct {
 	Restore         bool          `env:"RESTORE"`
 	DatabaseDSN     string        `env:"DATABASE_DSN"`
 	Key             string        `env:"KEY"`
+	AuditFile       string        `env:"AUDIT_FILE"`
+	AuditURL        string        `env:"AUDIT_URL"`
 }
 
+// LoadServConfig читает флаги и переменные окружения; переменные окружения имеют приоритет.
 func LoadServConfig() (*ServConfig, error) {
 	cfg := &ServConfig{}
 	var storeInterval int
@@ -29,6 +33,8 @@ func LoadServConfig() (*ServConfig, error) {
 	flag.BoolVar(&cfg.Restore, "r", false, "restore")
 	flag.StringVar(&cfg.DatabaseDSN, "d", "", "database DSN")
 	flag.StringVar(&cfg.Key, "k", "", "signing key")
+	flag.StringVar(&cfg.AuditFile, "audit-file", "", "path to audit log file")
+	flag.StringVar(&cfg.AuditURL, "audit-url", "", "URL to POST audit events to")
 	flag.Parse()
 
 	cfg.StoreInterval = time.Duration(storeInterval) * time.Second

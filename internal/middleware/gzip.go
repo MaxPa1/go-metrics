@@ -1,3 +1,4 @@
+// Package middleware содержит HTTP-middleware сервера.
 package middleware
 
 import (
@@ -6,6 +7,7 @@ import (
 	"github.com/MaxPa1/go-metrics/internal/compress"
 )
 
+// GzipMiddleware распаковывает gzip-запросы и сжимает ответы, если клиент поддерживает gzip.
 func GzipMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ow := w
@@ -23,6 +25,8 @@ func GzipMiddleware(next http.Handler) http.Handler {
 				return
 			}
 			r.Body = cr
+
+			defer cr.Close()
 		}
 
 		next.ServeHTTP(ow, r)

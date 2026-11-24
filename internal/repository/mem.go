@@ -1,3 +1,4 @@
+// Package repository содержит реализации хранилища метрик: в памяти, в файле и в PostgreSQL.
 package repository
 
 import (
@@ -8,12 +9,14 @@ import (
 	"github.com/MaxPa1/go-metrics/internal/model"
 )
 
+// MemStorage хранит метрики в памяти; безопасно для конкурентного использования.
 type MemStorage struct {
 	mutex      *sync.Mutex
 	counterMap map[string]int64
 	gaugeMap   map[string]float64
 }
 
+// NewMemStorage создаёт пустое хранилище в памяти.
 func NewMemStorage() *MemStorage {
 	return &MemStorage{
 		mutex:      &sync.Mutex{},
@@ -22,6 +25,7 @@ func NewMemStorage() *MemStorage {
 	}
 }
 
+// UpdateGauge сохраняет значение gauge.
 func (m *MemStorage) UpdateGauge(_ context.Context, name string, value float64) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -29,6 +33,7 @@ func (m *MemStorage) UpdateGauge(_ context.Context, name string, value float64) 
 	return nil
 }
 
+// UpdateCounter прибавляет delta к counter.
 func (m *MemStorage) UpdateCounter(_ context.Context, name string, delta int64) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -36,6 +41,7 @@ func (m *MemStorage) UpdateCounter(_ context.Context, name string, delta int64) 
 	return nil
 }
 
+// FindGauge возвращает значение gauge и признак его наличия.
 func (m *MemStorage) FindGauge(_ context.Context, name string) (float64, bool, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -43,6 +49,7 @@ func (m *MemStorage) FindGauge(_ context.Context, name string) (float64, bool, e
 	return v, ok, nil
 }
 
+// FindCounter возвращает значение counter и признак его наличия.
 func (m *MemStorage) FindCounter(_ context.Context, name string) (int64, bool, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -50,6 +57,7 @@ func (m *MemStorage) FindCounter(_ context.Context, name string) (int64, bool, e
 	return v, ok, nil
 }
 
+// UpdateBatch сохраняет набор метрик.
 func (m *MemStorage) UpdateBatch(_ context.Context, metrics []models.Metrics) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -68,6 +76,7 @@ func (m *MemStorage) UpdateBatch(_ context.Context, metrics []models.Metrics) er
 	return nil
 }
 
+// FindAll возвращает копии всех counter и gauge.
 func (m *MemStorage) FindAll(_ context.Context) (map[string]int64, map[string]float64, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()

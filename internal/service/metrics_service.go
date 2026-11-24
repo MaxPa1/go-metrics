@@ -1,3 +1,4 @@
+// Package service содержит бизнес-логику работы с метриками.
 package service
 
 import (
@@ -5,13 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/MaxPa1/go-metrics/internal/model"
 )
 
+// ErrMetricNotFound возвращается, если метрика не найдена.
 var ErrMetricNotFound = errors.New("metric not found")
 
+// MetricsStorage описывает хранилище метрик.
 type MetricsStorage interface {
 	UpdateGauge(ctx context.Context, name string, value float64) error
 	FindGauge(ctx context.Context, name string) (float64, bool, error)
@@ -21,16 +23,19 @@ type MetricsStorage interface {
 	UpdateBatch(ctx context.Context, metrics []models.Metrics) error
 }
 
+// MetricsServiceImpl реализует бизнес-логику поверх MetricsStorage.
 type MetricsServiceImpl struct {
 	repository MetricsStorage
 }
 
+// NewMetricsService создаёт сервис поверх хранилища.
 func NewMetricsService(repository MetricsStorage) *MetricsServiceImpl {
 	return &MetricsServiceImpl{
 		repository: repository,
 	}
 }
 
+// RecordGauge сохраняет значение gauge.
 func (s *MetricsServiceImpl) RecordGauge(ctx context.Context, name string, value float64) error {
 	err := s.repository.UpdateGauge(ctx, name, value)
 	if err != nil {
@@ -39,6 +44,7 @@ func (s *MetricsServiceImpl) RecordGauge(ctx context.Context, name string, value
 	return nil
 }
 
+// RecordCounter прибавляет value к counter.
 func (s *MetricsServiceImpl) RecordCounter(ctx context.Context, name string, value int64) error {
 	err := s.repository.UpdateCounter(ctx, name, value)
 	if err != nil {
@@ -47,6 +53,7 @@ func (s *MetricsServiceImpl) RecordCounter(ctx context.Context, name string, val
 	return nil
 }
 
+// GetGauge возвращает значение gauge или ErrMetricNotFound.
 func (s *MetricsServiceImpl) GetGauge(ctx context.Context, name string) (float64, error) {
 	value, ok, err := s.repository.FindGauge(ctx, name)
 	if err != nil {
@@ -58,6 +65,7 @@ func (s *MetricsServiceImpl) GetGauge(ctx context.Context, name string) (float64
 	return value, nil
 }
 
+// GetCounter возвращает значение counter или ErrMetricNotFound.
 func (s *MetricsServiceImpl) GetCounter(ctx context.Context, name string) (int64, error) {
 	value, ok, err := s.repository.FindCounter(ctx, name)
 	if err != nil {
@@ -69,6 +77,7 @@ func (s *MetricsServiceImpl) GetCounter(ctx context.Context, name string) (int64
 	return value, nil
 }
 
+// RecordBatch сохраняет набор метрик.
 func (s *MetricsServiceImpl) RecordBatch(ctx context.Context, metrics []models.Metrics) error {
 	if len(metrics) == 0 {
 		return nil
@@ -79,6 +88,7 @@ func (s *MetricsServiceImpl) RecordBatch(ctx context.Context, metrics []models.M
 	return nil
 }
 
+// GetAll возвращает все метрики в виде строк «имя: значение».
 func (s *MetricsServiceImpl) GetAll(ctx context.Context) ([]string, error) {
 	counters, gauges, err := s.repository.FindAll(ctx)
 	if err != nil {
@@ -87,21 +97,14 @@ func (s *MetricsServiceImpl) GetAll(ctx context.Context) ([]string, error) {
 
 	list := make([]string, 0, len(counters)+len(gauges))
 
-	var sb strings.Builder
-
+	var buf [128]byte
 	for k, v := range counters {
-		sb.Reset()
-		sb.WriteString(k)
-		sb.WriteString(": ")
-		sb.Write(strconv.AppendInt(nil, v, 10))
-		list = append(list, sb.String())
+		b := append(append(buf[:0], k...), ": "...)
+		list = append(list, string(strconv.AppendInt(b, v, 10)))
 	}
 	for k, v := range gauges {
-		sb.Reset()
-		sb.WriteString(k)
-		sb.WriteString(": ")
-		sb.Write(strconv.AppendFloat(nil, v, 'f', -1, 64))
-		list = append(list, sb.String())
+		b := append(append(buf[:0], k...), ": "...)
+		list = append(list, string(strconv.AppendFloat(b, v, 'f', -1, 64)))
 	}
 	return list, nil
 }
